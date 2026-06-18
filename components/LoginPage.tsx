@@ -25,7 +25,12 @@ export const LoginPage: React.FC = () => {
   const [isCountryOpen, setIsCountryOpen] = useState(false);
   const [countrySearch, setCountrySearch] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
+  const [isForgotFlow, setIsForgotFlow] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [resetToken, setResetToken] = useState('');
+  const [newResetPassword, setNewResetPassword] = useState('');
+  const [confirmResetPassword, setConfirmResetPassword] = useState('');
+  const [resetHint, setResetHint] = useState('');
   const navigate = useNavigate();
 
   const filteredCountries = COUNTRIES.filter(c => 
@@ -39,6 +44,55 @@ export const LoginPage: React.FC = () => {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (isForgotFlow) {
+      if (!email.trim()) {
+        alert("Enter your email first.");
+        return;
+      }
+
+      if (!resetToken.trim()) {
+        try {
+          const response = await api.forgotPassword({ email: email.trim() });
+          const token = typeof response.reset_token === 'string' ? response.reset_token : '';
+          setResetToken(token);
+          setResetHint(
+            token
+              ? `Reset token generated (${response.expires_minutes || 30} minutes). Paste token and set a new password.`
+              : (response.message || 'If your account exists, reset instructions were generated.')
+          );
+        } catch (error: any) {
+          console.error("Forgot Password Error:", error);
+          alert(error.message || "Failed to start password reset.");
+        }
+        return;
+      }
+
+      if (!newResetPassword || !confirmResetPassword) {
+        alert("Enter and confirm your new password.");
+        return;
+      }
+
+      if (newResetPassword !== confirmResetPassword) {
+        alert("New passwords do not match.");
+        return;
+      }
+
+      try {
+        await api.resetPassword({ token: resetToken.trim(), new_password: newResetPassword });
+        alert("Password reset successful. Please login with your new password.");
+        setIsForgotFlow(false);
+        setResetToken('');
+        setNewResetPassword('');
+        setConfirmResetPassword('');
+        setResetHint('');
+        setPassword('');
+      } catch (error: any) {
+        console.error("Reset Password Error:", error);
+        alert(error.message || "Password reset failed.");
+      }
+      return;
+    }
 
     if (isRegistering) {
       if (email && password && name && confirmPassword) {
@@ -115,6 +169,27 @@ export const LoginPage: React.FC = () => {
     setPassword('');
     setConfirmPassword('');
     setName('');
+  };
+
+  const toggleRegister = () => {
+    setIsRegistering((current) => !current);
+    setIsForgotFlow(false);
+    setResetHint('');
+  };
+
+  const startForgotFlow = () => {
+    setIsForgotFlow(true);
+    setIsRegistering(false);
+    setPassword('');
+    setConfirmPassword('');
+  };
+
+  const exitForgotFlow = () => {
+    setIsForgotFlow(false);
+    setResetToken('');
+    setNewResetPassword('');
+    setConfirmResetPassword('');
+    setResetHint('');
   };
 
   if (showSuccess) {
@@ -273,6 +348,7 @@ export const LoginPage: React.FC = () => {
             </div>
           </div>
           
+          {!isForgotFlow && (
           <div className="relative group">
             <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">Password</label>
             <div className="relative">
@@ -306,6 +382,7 @@ export const LoginPage: React.FC = () => {
               </button>
             </div>
           </div>
+          )}
 
           {isRegistering && (
             <div className="relative group">
@@ -338,21 +415,84 @@ export const LoginPage: React.FC = () => {
             </div>
           )}
 
+          {isForgotFlow && (
+            <>
+              {resetHint && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-semibold text-emerald-700">
+                  {resetHint}
+                </div>
+              )}
+
+              <div className="relative group">
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">Reset Token</label>
+                <input
+                  type="text"
+                  value={resetToken}
+                  onChange={(e) => setResetToken(e.target.value)}
+                  className="w-full bg-slate-50/50 border border-slate-200 rounded-xl px-4 py-3.5 font-semibold text-slate-700 placeholder:text-slate-300 focus:outline-none focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10 transition-all"
+                  placeholder="Paste reset token"
+                />
+              </div>
+
+              <div className="relative group">
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">New Password</label>
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={newResetPassword}
+                  onChange={(e) => setNewResetPassword(e.target.value)}
+                  className="w-full bg-slate-50/50 border border-slate-200 rounded-xl px-4 py-3.5 font-semibold text-slate-700 placeholder:text-slate-300 focus:outline-none focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10 transition-all"
+                  placeholder="New password"
+                />
+              </div>
+
+              <div className="relative group">
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">Confirm New Password</label>
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={confirmResetPassword}
+                  onChange={(e) => setConfirmResetPassword(e.target.value)}
+                  className="w-full bg-slate-50/50 border border-slate-200 rounded-xl px-4 py-3.5 font-semibold text-slate-700 placeholder:text-slate-300 focus:outline-none focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10 transition-all"
+                  placeholder="Confirm new password"
+                />
+              </div>
+            </>
+          )}
+
           <button 
             type="submit"
             className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold text-sm uppercase tracking-widest shadow-lg hover:bg-violet-600 hover:shadow-violet-500/30 transition-all transform hover:-translate-y-1 active:scale-95 mt-2"
           >
-            {isRegistering ? 'Create Account' : 'Login'}
+            {isForgotFlow ? (resetToken ? 'Reset Password' : 'Send Reset Token') : (isRegistering ? 'Create Account' : 'Login')}
           </button>
 
-          <div className="text-center">
+          <div className="text-center space-y-2">
+            {!isRegistering && !isForgotFlow && (
+              <button
+                type="button"
+                onClick={startForgotFlow}
+                className="text-slate-500 text-[10px] font-bold uppercase tracking-widest hover:text-violet-600 transition-colors"
+              >
+                Forgot Password?
+              </button>
+            )}
+
             <button 
               type="button"
-              onClick={() => setIsRegistering(!isRegistering)}
+              onClick={toggleRegister}
               className="text-slate-400 text-[10px] font-bold uppercase tracking-widest hover:text-violet-600 transition-colors"
             >
               {isRegistering ? 'Already have an account? Login' : 'New User? Register Here'}
             </button>
+
+            {isForgotFlow && (
+              <button
+                type="button"
+                onClick={exitForgotFlow}
+                className="block w-full text-slate-500 text-[10px] font-bold uppercase tracking-widest hover:text-violet-600 transition-colors"
+              >
+                Back to Login
+              </button>
+            )}
           </div>
         </form>
       </div>

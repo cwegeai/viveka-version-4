@@ -4,6 +4,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "backend:install": "python -m pip install -r backend/requirements.txt",
+    "backend:dev": "python -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000",
+    "backend:worker": "python -m backend.app.redis_worker",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview"

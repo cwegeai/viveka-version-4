@@ -12,6 +12,7 @@ import { LoginPage } from './components/LoginPage';
 import { AdminConsole } from './components/AdminConsole';
 import { UserProfile } from './components/UserProfile';
 import { api } from './services/api';
+import { TRANSCRIPTION_API_URL } from './services/config';
 import {
   clearAuthStorage,
   getAccessToken,
@@ -33,7 +34,11 @@ const Dashboard: React.FC = () => {
   const [fileDuration, setFileDuration] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'upload' | 'record'>('upload');
   const sessionRef = useRef(0);
-  const restartSession = () => {sessionRef.current += 1;   // ⭐ invalidate old requests
+  const activeRequestRef = useRef<AbortController | null>(null);
+  const restartSession = () => {sessionRef.current += 1;
+
+  activeRequestRef.current?.abort();
+  activeRequestRef.current = null;
 
   setResult(null);
   setOriginalFile(undefined);
@@ -47,12 +52,8 @@ const Dashboard: React.FC = () => {
 };
   const navigate = useNavigate();
   const currentUser = getStoredUser();
-  const azureAnalysisConfigured = Boolean(
-    (process.env.AZURE_OPENAI_ENDPOINT || '').trim() &&
-    (process.env.AZURE_OPENAI_API_KEY || '').trim() &&
-    (process.env.AZURE_OPENAI_API_VERSION || '').trim() &&
-    (process.env.AZURE_OPENAI_CHAT_DEPLOYMENT || '').trim()
-  );
+  const transcriptionBackendUrl = TRANSCRIPTION_API_URL;
+  const backendPipelineConfigured = Boolean(transcriptionBackendUrl);
 
   
   const handleAudioSource = async (file: File) => {
@@ -71,6 +72,8 @@ const Dashboard: React.FC = () => {
     };
     
     setAudioUrl(audio.src);
+    const requestController = new AbortController();
+    activeRequestRef.current = requestController;
 
     try {
       const transcription = await transcribeAudio(
@@ -81,7 +84,12 @@ const Dashboard: React.FC = () => {
           if (prog !== undefined) {
             setProgress(current => Math.max(current, prog));
           }
-        }
+        },
+        (partialResult) => {
+          if (currentSession !== sessionRef.current) return;
+          setResult(partialResult);
+        },
+        requestController.signal
       );
       
       // ⭐ if user restarted → ignore this result
@@ -90,10 +98,14 @@ const Dashboard: React.FC = () => {
       await syncToBackend(file, transcription);
 
     } catch (error: any) {
+      if (error?.name === 'AbortError' || currentSession !== sessionRef.current) {
+        return;
+      }
       console.error(error);
       alert(`Viveka Protocol Error: ${error.message || "Analysis failed."}`);
     } finally {
       if (currentSession !== sessionRef.current) return;
+      activeRequestRef.current = null;
       setIsProcessing(false);
       setProgress(100);
     }
@@ -153,11 +165,11 @@ const Dashboard: React.FC = () => {
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 md:p-5">
               <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4">
                 <div className="flex-1">
-                  <p className="font-bold text-slate-900 text-xs md:text-sm mb-1">Azure OpenAI Analysis</p>
-                  <p className="text-slate-500 text-[11px] md:text-xs">Deepgram handles transcription. Azure OpenAI handles AWESOME artifact synthesis from the transcript.</p>
+                  <p className="font-bold text-slate-900 text-xs md:text-sm mb-1">Backend Transcription Pipeline</p>
+                  <p className="text-slate-500 text-[11px] md:text-xs">Deepgram handles server-side transcription. Gemini generates AWESOME artifacts after chunk merge.</p>
                 </div>
-                <div className={`px-4 py-3 rounded-xl text-[10px] md:text-[11px] font-black uppercase tracking-widest shadow-sm ${azureAnalysisConfigured ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
-                  {azureAnalysisConfigured ? 'Azure Ready' : 'Azure Not Configured'}
+                <div className={`px-4 py-3 rounded-xl text-[10px] md:text-[11px] font-black uppercase tracking-widest shadow-sm ${backendPipelineConfigured ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
+                  {backendPipelineConfigured ? 'Pipeline Ready' : 'Pipeline Not Configured'}
                 </div>
               </div>
             </div>
@@ -168,7 +180,7 @@ const Dashboard: React.FC = () => {
                 <div className="w-10 h-10 md:w-12 md:h-12 bg-slate-50 rounded-xl flex items-center justify-center shrink-0 border border-slate-100 text-lg md:text-xl">⚖️</div>
                 <div>
                   <p className="font-bold text-slate-900 text-xs md:text-sm mb-1">File Limit:</p>
-                  <p className="text-slate-500 text-[11px] md:text-xs leading-relaxed">Max audio size: 100 MB</p>
+                  <p className="text-slate-500 text-[11px] md:text-xs leading-relaxed">Browser intake capped at 2 GB. Backend is designed for long-form chunked processing.</p>
                 </div>
               </div>
 
@@ -176,7 +188,7 @@ const Dashboard: React.FC = () => {
                 <div className="w-10 h-10 md:w-12 md:h-12 bg-slate-50 rounded-xl flex items-center justify-center shrink-0 border border-slate-100 text-lg md:text-xl">✂️</div>
                 <div>
                   <p className="font-bold text-slate-900 text-xs md:text-sm mb-1">For Speed:</p>
-                  <p className="text-slate-500 text-[11px] md:text-xs leading-relaxed">Split audio into 20-30 MB parts</p>
+                  <p className="text-slate-500 text-[11px] md:text-xs leading-relaxed">The backend normalizes audio, creates 10-minute chunks, and processes them in parallel.</p>
                 </div>
               </div>
 
@@ -184,7 +196,7 @@ const Dashboard: React.FC = () => {
                 <div className="w-10 h-10 md:w-12 md:h-12 bg-slate-50 rounded-xl flex items-center justify-center shrink-0 border border-slate-100 text-lg md:text-xl">⏸️</div>
                 <div>
                   <p className="font-bold text-slate-900 text-xs md:text-sm mb-1">Recording Tip:</p>
-                  <p className="text-slate-500 text-[11px] md:text-xs leading-relaxed">Keep recordings short and stop at natural breaks.</p>
+                  <p className="text-slate-500 text-[11px] md:text-xs leading-relaxed">Live recordings still work, and longer source files now process directly through the backend transcription pipeline without relying on the Redis worker queue.</p>
                 </div>
               </div>
             </div>

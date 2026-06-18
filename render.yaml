@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: viveka-backend
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeployTrigger: commit
+    envVars:
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: VIVEKA_BACKEND_CORS
+        sync: false
+      - key: VIVEKA_AUTH_EXPOSE_RESET_TOKEN
+        value: "false"
+      - key: VIVEKA_BACKGROUND_JOBS_ENABLED
+        value: "false"
+      - key: VIVEKA_BACKEND_HOST
+        value: 0.0.0.0
+      - key: VIVEKA_BACKEND_PORT
+        value: "10000"

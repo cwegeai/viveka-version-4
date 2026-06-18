@@ -1,4 +1,4 @@
-import { getAccessToken } from './authStorage';
+import { clearAuthStorage, getAccessToken } from './authStorage';
 import { BASE_URL } from './config';
 
 const getHeaders = (isMultipart = false) => {
@@ -13,6 +13,33 @@ const getHeaders = (isMultipart = false) => {
   return headers;
 };
 
+const handleUnauthorized = (response: Response) => {
+  if (response.status !== 401) {
+    return;
+  }
+
+  clearAuthStorage();
+
+  if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+    window.location.assign('/login');
+  }
+};
+
+const parseErrorMessage = async (response: Response, fallback: string): Promise<string> => {
+  try {
+    const data = await response.json();
+    if (typeof data?.message === 'string' && data.message.trim()) {
+      return data.message;
+    }
+    if (typeof data?.detail === 'string' && data.detail.trim()) {
+      return data.detail;
+    }
+  } catch {
+    // Ignore JSON parse errors and fallback below.
+  }
+  return fallback;
+};
+
 export const api = {
   register: async (userData: any) => {
     const response = await fetch(`${BASE_URL}/auth/register`, {
@@ -20,7 +47,10 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(userData),
     });
-    if (!response.ok) throw new Error('Registration failed');
+    handleUnauthorized(response);
+    if (!response.ok) {
+      throw new Error(await parseErrorMessage(response, 'Registration failed'));
+    }
     return response.json();
   },
 
@@ -34,7 +64,36 @@ export const api = {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: params.toString(),
     });
-    if (!response.ok) throw new Error('Login failed');
+    handleUnauthorized(response);
+    if (!response.ok) {
+      throw new Error(await parseErrorMessage(response, 'Login failed'));
+    }
+    return response.json();
+  },
+
+  forgotPassword: async (payload: { email: string }) => {
+    const response = await fetch(`${BASE_URL}/auth/forgot-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    handleUnauthorized(response);
+    if (!response.ok) {
+      throw new Error(await parseErrorMessage(response, 'Failed to request password reset'));
+    }
+    return response.json();
+  },
+
+  resetPassword: async (payload: { token: string; new_password: string }) => {
+    const response = await fetch(`${BASE_URL}/auth/reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    handleUnauthorized(response);
+    if (!response.ok) {
+      throw new Error(await parseErrorMessage(response, 'Failed to reset password'));
+    }
     return response.json();
   },
 
@@ -58,6 +117,7 @@ export const api = {
       headers: getHeaders(true),
       body: formData,
     });
+    handleUnauthorized(response);
     
     if (!response.ok) throw new Error('Upload failed');
     return response.json();
@@ -68,6 +128,7 @@ export const api = {
       method: 'GET',
       headers: getHeaders(),
     });
+    handleUnauthorized(response);
     if (!response.ok) throw new Error('Fetching files failed');
     return response.json();
   },
@@ -77,6 +138,7 @@ export const api = {
       method: 'GET',
       headers: getHeaders(),
     });
+    handleUnauthorized(response);
     if (!response.ok) throw new Error('Fetching dashboard stats failed');
     return response.json();
   },
@@ -87,6 +149,7 @@ export const api = {
       method: 'GET',
       headers: getHeaders(),
     });
+    handleUnauthorized(response);
     if (!response.ok) throw new Error('Fetching user files failed');
     return response.json();
   },
@@ -96,6 +159,7 @@ export const api = {
       method: 'GET',
       headers: getHeaders(true),
     });
+    handleUnauthorized(response);
     if (!response.ok) throw new Error('Download failed');
     return response.blob();
   }
