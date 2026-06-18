@@ -84,6 +84,23 @@ app.add_middleware(
 )
 
 
+@app.get("/")
+async def root() -> JSONResponse:
+    return JSONResponse(
+        {
+            "service": "Viveka Echo Backend",
+            "status": "ok",
+            "health": "/healthz",
+            "docs": "/docs",
+        }
+    )
+
+
+@app.get("/favicon.ico", status_code=204)
+async def favicon() -> JSONResponse:
+    return JSONResponse(status_code=204, content=None)
+
+
 @app.get("/healthz")
 async def healthz() -> JSONResponse:
     return JSONResponse({"status": "ok"})
