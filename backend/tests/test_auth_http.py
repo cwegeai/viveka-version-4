@@ -26,6 +26,23 @@ class AuthHttpTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers.get("access-control-allow-origin"), "http://localhost:5173")
 
+    def test_preflight_accepts_netlify_origin_on_api_v1_alias(self) -> None:
+        client = TestClient(app)
+
+        response = client.options(
+            "/api/v1/auth/login",
+            headers={
+                "Origin": "https://viveka-version-4.netlify.app",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.headers.get("access-control-allow-origin"),
+            "https://viveka-version-4.netlify.app",
+        )
+
     def test_api_v1_auth_login_alias_exists(self) -> None:
         client = TestClient(app)
 
