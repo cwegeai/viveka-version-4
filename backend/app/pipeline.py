@@ -209,7 +209,7 @@ class PipelineRunner:
         yield progress_event(PipelineStage.merging, "Merging chunk transcripts...", progress=75)
         merged = merge_chunk_results(final_chunks)
 
-        transcript_ready_result = self.gemini.build_default_result(merged)
+        transcript_ready_result = await self.gemini.build_transcript_ready_result(merged, include_summary=False)
         yield sse_event(
             PipelineStage.result.value,
             {
@@ -224,6 +224,7 @@ class PipelineRunner:
             message = (
                 f"Transcript complete. Skipped Gemini artifacts for {duration_seconds / 60:.1f}-minute audio to prioritize speed."
             )
+            transcript_ready_result = await self.gemini.build_transcript_ready_result(merged, include_summary=True)
             yield progress_event(PipelineStage.complete, message, progress=100)
             yield sse_event(
                 PipelineStage.complete.value,

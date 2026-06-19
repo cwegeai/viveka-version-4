@@ -6,6 +6,10 @@ export interface SpeakerTurn {
   translated: string;
   mu_id: string;
   timestamp: string;
+  start_time_seconds?: number;
+  end_time_seconds?: number;
+  duration_seconds?: number;
+  confidence?: number;
   language?: string;
   languages?: string[];
   words?: TranscriptWord[];

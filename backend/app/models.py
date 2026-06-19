@@ -91,6 +91,10 @@ class TranscriptTurn(BaseModel):
     translated: str
     mu_id: str
     timestamp: str
+    start_time_seconds: float = 0.0
+    end_time_seconds: float = 0.0
+    duration_seconds: float = 0.0
+    confidence: Optional[float] = None
     language: Optional[str] = None
     languages: list[str] = Field(default_factory=list)
     words: list[TranscriptWord] = Field(default_factory=list)
