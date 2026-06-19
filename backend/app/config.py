@@ -107,7 +107,7 @@ def get_settings() -> Settings:
         password_reset_token_minutes=int(os.getenv("VIVEKA_PASSWORD_RESET_TOKEN_MINUTES", "30")),
         admin_emails=admin_emails,
         auth_expose_reset_token=_env_bool("VIVEKA_AUTH_EXPOSE_RESET_TOKEN", "true"),
-        upload_chunk_size_bytes=1024 * 1024,
+        upload_chunk_size_bytes=int(os.getenv("VIVEKA_UPLOAD_CHUNK_SIZE_BYTES", str(8 * 1024 * 1024))),
         direct_transcribe_max_seconds=int(os.getenv("VIVEKA_DIRECT_TRANSCRIBE_MAX_SECONDS", str(20 * 60))),
         gemini_auto_max_seconds=int(os.getenv("VIVEKA_GEMINI_AUTO_MAX_SECONDS", str(15 * 60))),
         normalized_sample_rate=16000,

@@ -82,8 +82,8 @@ def normalize_audio_to_wav(input_path: Path, output_path: Path, settings: Settin
     subprocess.run(command, capture_output=True, text=True, check=True)
 
 
-def split_chunks(normalized_wav: Path, output_dir: Path, settings: Settings) -> list[ChunkManifest]:
-    duration = probe_duration_seconds(normalized_wav)
+def split_chunks(source_audio: Path, output_dir: Path, settings: Settings) -> list[ChunkManifest]:
+    duration = probe_duration_seconds(source_audio)
     chunk_duration = settings.chunk_minutes * 60
     step = max(1, chunk_duration - settings.overlap_seconds)
     manifests: list[ChunkManifest] = []
@@ -101,7 +101,7 @@ def split_chunks(normalized_wav: Path, output_dir: Path, settings: Settings) -> 
             "-t",
             str(max(1.0, current_end - current_start)),
             "-i",
-            str(normalized_wav),
+            str(source_audio),
             "-ac",
             str(settings.normalized_channels),
             "-ar",
@@ -127,6 +127,4 @@ def split_chunks(normalized_wav: Path, output_dir: Path, settings: Settings) -> 
 
 
 async def prepare_chunks(source_file: Path, workspace: Path, settings: Settings) -> list[ChunkManifest]:
-    normalized_path = workspace / "normalized.wav"
-    await asyncio.to_thread(normalize_audio_to_wav, source_file, normalized_path, settings)
-    return await asyncio.to_thread(split_chunks, normalized_path, workspace / "chunks", settings)
+    return await asyncio.to_thread(split_chunks, source_file, workspace / "chunks", settings)
