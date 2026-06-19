@@ -92,7 +92,7 @@ def split_chunks(source_audio: Path, output_dir: Path, settings: Settings) -> li
     current_start = 0.0
     while current_start < duration:
         current_end = min(duration, current_start + chunk_duration)
-        output_file = output_dir / f"chunk_{chunk_id:03d}.wav"
+        output_file = output_dir / f"chunk_{chunk_id:03d}.flac"
         command = [
             "ffmpeg",
             "-y",
@@ -108,7 +108,7 @@ def split_chunks(source_audio: Path, output_dir: Path, settings: Settings) -> li
             str(settings.normalized_sample_rate),
             "-vn",
             "-c:a",
-            "pcm_s16le",
+            "flac",
             str(output_file),
         ]
         subprocess.run(command, capture_output=True, text=True, check=True)
