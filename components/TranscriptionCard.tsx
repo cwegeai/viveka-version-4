@@ -740,7 +740,7 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
         text: string,
         fontSize: number,
         style: string = 'normal',
-        color: [number, number, number] = [30, 41, 59],
+        color: [number, number, number] = [0, 0, 0],
         indent: number = 0,
         fontName: string = 'Latin'
       ) => {
@@ -760,30 +760,32 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
       };
 
       // 1. Header
-      pdf.setFillColor(15, 23, 42);
+      pdf.setFillColor(0, 0, 0);
       pdf.rect(margin, y, contentWidth, 15, 'F');
       pdf.setTextColor(255, 255, 255);
-      pdf.setFontSize(14);
+      pdf.setFontSize(15);
       pdf.setFont('Latin', 'bold');
       pdf.text("VIVEKA RESEARCH DOSSIER - VERBATIM SYNTHESIS", margin + 5, y + 10);
       y += 25;
 
       // 2. Metadata Block
-      pdf.setTextColor(100, 116, 139);
-      pdf.setFontSize(8);
+      pdf.setTextColor(55, 65, 81);
+      pdf.setFontSize(8.5);
+      pdf.setFont('Latin', 'bold');
       pdf.text(`FILE: ${originalFileName || "Session_Archive"}`, margin, y);
       pdf.text(`SYNCED: ${new Date().toLocaleString()}`, margin, y + 4);
+      pdf.setFont('Latin', 'normal');
       y += 15;
 
       // 3. Executive Synthesis
-      addWrappedText("EXECUTIVE SYNTHESIS", 12, 'bold', [15, 23, 42]);
-      pdf.setDrawColor(15, 23, 42);
-      pdf.setLineWidth(1);
+      addWrappedText("EXECUTIVE SYNTHESIS", 12, 'bold', [0, 0, 0]);
+      pdf.setDrawColor(0, 0, 0);
+      pdf.setLineWidth(1.2);
       pdf.line(margin, y, margin + 40, y);
       y += 8;
 
       result.executiveSynthesis?.forEach(chunk => {
-        addWrappedText(`[Chunk ${chunk.chunk_id}] ${chunk.text}`, 10, 'normal', [71, 85, 105]);
+        addWrappedText(`[Chunk ${chunk.chunk_id}] ${chunk.text}`, 10, 'normal', [40, 40, 40]);
         y += 4;
       });
 
@@ -791,7 +793,7 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
 
       // 4. Verbatim Record
       checkPageBreak(20);
-      addWrappedText("VERBATIM RECORD", 12, 'bold', [15, 23, 42]);
+      addWrappedText("VERBATIM RECORD", 12, 'bold', [0, 0, 0]);
       pdf.line(margin, y, margin + 40, y);
       y += 8;
 
@@ -800,30 +802,32 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
         // Speaker Header
         pdf.setFillColor(248, 250, 252);
         pdf.rect(margin, y, contentWidth, 10, 'F');
-        pdf.setTextColor(15, 23, 42);
+        pdf.setTextColor(0, 0, 0);
         pdf.setFontSize(9);
         pdf.setFont('Latin', 'bold');
         pdf.text(`${turn.speaker.toUpperCase()} - MU ${turn.mu_id}`, margin + 3, y + 6.5);
-        pdf.setTextColor(100, 116, 139);
+        pdf.setTextColor(55, 65, 81);
         pdf.setFontSize(8);
         pdf.text(turn.timestamp, pageWidth - margin - 20, y + 6.5);
         y += 15;
 
-        addWrappedText(`Original: ${turn.original}`, 10, 'normal', [15, 23, 42], 5, detectFontFamily(turn.original));
+        addWrappedText(`Original: ${turn.original}`, 10, 'normal', [0, 0, 0], 5, detectFontFamily(turn.original));
 
         if (turn.transliterated) {
-          pdf.setTextColor(203, 213, 225);
+          pdf.setTextColor(120, 120, 120);
           pdf.setFontSize(7);
+          pdf.setFont('Latin', 'bold');
           pdf.text("TRANSLITERATION RECORD:", margin + 5, y);
           y += 4;
-          addWrappedText(turn.transliterated, 8, 'normal', [148, 163, 184], 5, detectFontFamily(turn.transliterated));
+          addWrappedText(turn.transliterated, 8, 'normal', [100, 100, 100], 5, detectFontFamily(turn.transliterated));
         }
         // Transcript Content (Prioritizing English translation for text-readability)
-        pdf.setTextColor(148, 163, 184);
+        pdf.setTextColor(120, 120, 120);
         pdf.setFontSize(7);
+        pdf.setFont('Latin', 'bold');
         pdf.text("ENGLISH ANALYSIS TIER:", margin + 5, y);
         y += 4;
-        addWrappedText(turn.translated, 10, 'italic', [51, 65, 85], 5, detectFontFamily(turn.translated));
+        addWrappedText(turn.translated, 10, 'italic', [0, 0, 0], 5, detectFontFamily(turn.translated));
         
         // Note: For native script fidelity (Malayalam/Hindi), we recommend the visual viewer
         // as PDF standard fonts require embedding for Unicode ranges.
@@ -833,27 +837,27 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
       // 5. Artifacts Sections
       pdf.addPage();
       y = 20;
-      addWrappedText("QUALITATIVE MAPPING ARTIFACTS", 14, 'bold', [15, 23, 42]);
+      addWrappedText("QUALITATIVE MAPPING ARTIFACTS", 14, 'bold', [0, 0, 0]);
       y += 10;
 
       // Artifact 1: Evidence Matrix
-      addWrappedText("ARTIFACT 1: EVIDENCE MATRIX", 11, 'bold', [124, 58, 237]);
+      addWrappedText("ARTIFACT 1: EVIDENCE MATRIX", 11, 'bold', [0, 0, 0]);
       result.artifact1_evidence?.forEach(row => {
         checkPageBreak(40);
         pdf.setDrawColor(241, 245, 249);
         //pdf.rect(margin, y, contentWidth, 35);
         y += 5;
         pdf.setFontSize(8);
-        pdf.setTextColor(124, 58, 237);
+        pdf.setTextColor(0, 0, 0);
         pdf.text(`${row.dimension} | ${row.domain}`, margin + 5, y);
         y += 6;
-        addWrappedText(`Evidence: "${row.evidence}"`, 9, 'italic', [30, 41, 59], 5, detectFontFamily(row.evidence));
-        addWrappedText(`Reasoning: ${row.reasoning}`, 8, 'normal', [100, 116, 139], 5, detectFontFamily(row.reasoning));
+        addWrappedText(`Evidence: "${row.evidence}"`, 9, 'italic', [0, 0, 0], 5, detectFontFamily(row.evidence));
+        addWrappedText(`Reasoning: ${row.reasoning}`, 8, 'normal', [60, 60, 60], 5, detectFontFamily(row.reasoning));
         y += 5;
       });
 
       y += 20;
-      addWrappedText("ARTIFACT 2: CONTEXT MATRIX", 12, 'bold', [15, 23, 42]);
+      addWrappedText("ARTIFACT 2: CONTEXT MATRIX", 12, 'bold', [0, 0, 0]);
       y += 5;
       result.artifact2_context?.forEach(row => {
         checkPageBreak(25);
@@ -867,7 +871,7 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
 
       // Artifact 3: Mechanism Chains
       y += 10;
-      addWrappedText("ARTIFACT 3: MECHANISM CHAINS", 11, 'bold', [124, 58, 237]);
+      addWrappedText("ARTIFACT 3: MECHANISM CHAINS", 11, 'bold', [0, 0, 0]);
       result.artifact3_chains?.forEach(chain => {
         checkPageBreak(30);
         pdf.setFillColor(15, 23, 42);
@@ -876,21 +880,21 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
         pdf.setFontSize(10);
         pdf.text(chain?.chain_id || ''  , margin + 5, y + 10);
         
-        pdf.setTextColor(15, 23, 42);
-        addWrappedText(chain?.pathway, 10, 'bold', [15, 23, 42], 20, detectFontFamily(chain?.pathway || ''));
-        addWrappedText(chain?.impacts, 9, 'italic', [100, 116, 139], 20, detectFontFamily(chain?.impacts || ''));
+        pdf.setTextColor(0, 0, 0);
+        addWrappedText(chain?.pathway, 10, 'bold', [0, 0, 0], 20, detectFontFamily(chain?.pathway || ''));
+        addWrappedText(chain?.impacts, 9, 'italic', [60, 60, 60], 20, detectFontFamily(chain?.impacts || ''));
         y += 10;
       });
 
       y += 10;
-      addWrappedText("ARTIFACT 5: VULNERABILITY HOTSPOTS", 12, 'bold', [225, 29, 72]);
+      addWrappedText("ARTIFACT 5: VULNERABILITY HOTSPOTS", 12, 'bold', [0, 0, 0]);
       result.artifact5_hotspots?.forEach(item => {
         checkPageBreak(30);
         pdf.setDrawColor(254, 226, 226);
         pdf.setFillColor(255, 251, 251);
         //pdf.rect(margin, y, contentWidth, 25, 'FD');
-        addWrappedText(item.vulnerable, 10, 'bold', [15, 23, 42], 5, detectFontFamily(item.vulnerable));
-        addWrappedText(`Drivers: ${item.drivers}`, 9, 'normal', [153, 27, 27], 5, detectFontFamily(item.drivers));
+        addWrappedText(item.vulnerable, 10, 'bold', [0, 0, 0], 5, detectFontFamily(item.vulnerable));
+        addWrappedText(`Drivers: ${item.drivers}`, 9, 'normal', [60, 60, 60], 5, detectFontFamily(item.drivers));
         y += 5;
       });
 
