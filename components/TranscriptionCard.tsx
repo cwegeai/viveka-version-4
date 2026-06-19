@@ -659,6 +659,24 @@ const FONT_LIST = [
   { name: "Telugu", style: "normal", file: "NotoSansTelugu-Regular.ttf" },
 ];
 
+const PDF_FONT_STYLES: Array<'normal' | 'italic' | 'bold' | 'bolditalic'> = [
+  'normal',
+  'italic',
+  'bold',
+  'bolditalic',
+];
+
+const resolvePdfFontStyle = (fontName: string, preferredStyle: string): 'normal' | 'italic' | 'bold' | 'bolditalic' => {
+  if (fontName === 'Latin') {
+    if (preferredStyle === 'italic' || preferredStyle === 'bold' || preferredStyle === 'bolditalic') {
+      return preferredStyle;
+    }
+    return 'normal';
+  }
+
+  return 'normal';
+};
+
 export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalFileName, onRestart }) => {
   const [activeTab, setActiveTab] = useState<'transcript' | 'artifacts'>('transcript');
   const [isExporting, setIsExporting] = useState(false);
@@ -698,7 +716,9 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
           fileCache.set(font.file, fontBase64);
         }
         pdf.addFileToVFS(font.file, fontBase64);
-        pdf.addFont(font.file, font.name, font.style);
+        PDF_FONT_STYLES.forEach((style) => {
+          pdf.addFont(font.file, font.name, style);
+        });
       });
 
     await Promise.all(loadPromises);
@@ -725,7 +745,7 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
         fontName: string = 'Latin'
       ) => {
         pdf.setFontSize(fontSize);
-        pdf.setFont(fontName, style);
+        pdf.setFont(fontName, resolvePdfFontStyle(fontName, style));
         pdf.setTextColor(color[0], color[1], color[2]);
         
         const lines: string[] = pdf.splitTextToSize(text, contentWidth - indent);
