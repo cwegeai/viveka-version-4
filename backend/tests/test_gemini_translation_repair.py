@@ -55,6 +55,10 @@ def make_settings() -> Settings:
         gemini_api_key="test-gemini-key",
         gemini_model="gemini-2.5-flash",
         gemini_base_url="https://generativelanguage.googleapis.com/v1beta",
+        azure_openai_endpoint="",
+        azure_openai_api_version="2024-12-01-preview",
+        azure_openai_chat_deployment="",
+        azure_openai_api_key="",
     )
 
 
@@ -92,20 +96,12 @@ class GeminiTranslationRepairTests(unittest.TestCase):
                                                 {
                                                     "speaker": "Speaker 1",
                                                     "original": "साठ होने के लिए तीन साल जाएगी.",
-                                                    "transliterated": "साठ होने के लिए तीन साल जाएगी.",
-                                                    "translated": "साठ होने के लिए तीन साल जाएगी.",
+                                                    "transliterated": "saath hone ke liye teen saal jaayegi.",
+                                                    "translated": "It will take three years to turn sixty.",
                                                     "mu_id": "MU-001",
                                                     "timestamp": "00:00",
                                                 }
-                                            ],
-                                            "summary": "",
-                                            "executiveSynthesis": [],
-                                            "keyPoints": [],
-                                            "artifact1_evidence": [],
-                                            "artifact2_context": [],
-                                            "artifact3_chains": [],
-                                            "artifact5_hotspots": [],
-                                            "strategies": [],
+                                            ]
                                         },
                                         ensure_ascii=False,
                                     )
@@ -123,15 +119,15 @@ class GeminiTranslationRepairTests(unittest.TestCase):
                                 {
                                     "text": json.dumps(
                                         {
-                                            "turns": [
+                                            "summary": "The speaker says it will take three years to turn sixty.",
+                                            "executiveSynthesis": [
                                                 {
-                                                    "speaker": "Speaker 1",
-                                                    "original": "साठ होने के लिए तीन साल जाएगी.",
-                                                    "transliterated": "saath hone ke liye teen saal jaayegi.",
-                                                    "translated": "It will take three years to turn sixty.",
-                                                    "mu_id": "MU-001",
-                                                    "timestamp": "00:00",
+                                                    "chunk_id": 1,
+                                                    "text": "The speaker says it will take three years to turn sixty."
                                                 }
+                                            ],
+                                            "keyPoints": [
+                                                "Three years remain before the speaker turns sixty."
                                             ]
                                         },
                                         ensure_ascii=False,

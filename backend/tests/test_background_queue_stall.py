@@ -66,6 +66,10 @@ class BackgroundQueueStallTests(unittest.TestCase):
             gemini_api_key="",
             gemini_model="gemini-2.5-flash",
             gemini_base_url="https://generativelanguage.googleapis.com/v1beta",
+            azure_openai_endpoint="",
+            azure_openai_api_version="2024-12-01-preview",
+            azure_openai_chat_deployment="",
+            azure_openai_api_key="",
         )
         try:
             self.assertTrue(_supports_background_jobs(5 * 1024 * 1024))
