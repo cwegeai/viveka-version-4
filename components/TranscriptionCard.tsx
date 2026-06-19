@@ -814,6 +814,16 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
         y += 2; // Paragraph spacing
       };
 
+      const measureWrappedTextHeight = (
+        text: string,
+        fontSize: number,
+        indent: number = 0,
+      ) => {
+        const lines: string[] = pdf.splitTextToSize(text || '', contentWidth - indent);
+        const lineHeight = fontSize * 0.5;
+        return (lines.length * lineHeight) + 2;
+      };
+
       const drawSectionDivider = () => {
         pdf.setDrawColor(15, 23, 42);
         pdf.setLineWidth(1.2);
@@ -835,24 +845,25 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
       pdf.setFontSize(8);
       pdf.setFont('Latin', 'bold');
       pdf.text(`Source: ${originalFileName || "Session_Archive"}`, margin, y);
-      pdf.text(`Synced: ${new Date().toLocaleString()}`, margin, y + 4);
       pdf.setFont('Latin', 'normal');
-      y += 9;
+      y += 6;
       drawSectionDivider();
       y += 12;
 
       // 3. Executive Synthesis
       addWrappedText('SUMMARY OF INTERVIEW', 13, 'bold', [15, 23, 42]);
       y += 2;
-      checkPageBreak(48);
+      const summaryHeight = Math.max(38, measureWrappedTextHeight(executiveText, 10, 8) + 10);
+      checkPageBreak(summaryHeight + 6);
       pdf.setFillColor(248, 250, 252);
       pdf.setDrawColor(232, 236, 243);
-      pdf.roundedRect(margin, y, contentWidth, 46, 6, 6, 'FD');
+      pdf.roundedRect(margin, y, contentWidth, summaryHeight, 6, 6, 'FD');
       pdf.setFillColor(124, 58, 237);
-      pdf.roundedRect(margin, y, 3, 46, 2, 2, 'F');
+      pdf.roundedRect(margin, y, 3, summaryHeight, 2, 2, 'F');
       y += 8;
       addWrappedText(executiveText, 10, 'italic', [51, 65, 85], 8, detectFontFamily(executiveText));
-      y += 10;
+      y = margin + summaryHeight + (y - (margin + 8) < summaryHeight ? 0 : 0)
+      y += 8;
 
       // 4. Verbatim Record
       checkPageBreak(20);
@@ -863,7 +874,7 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
       y += 10;
 
       result.turns?.forEach((turn) => {
-        checkPageBreak(42);
+        checkPageBreak(52);
         // Speaker Header
         pdf.setFillColor(248, 250, 252);
         pdf.rect(margin, y, contentWidth, 9, 'F');
