@@ -1,6 +1,8 @@
 
 import { TranscriptionResult } from "../types";
 
+const MAX_SYNC_FILE_SIZE_BYTES = 20 * 1024 * 1024;
+
 /**
  * VIVEKA MASTER DATABASE ENDPOINT
  * Spreadsheet: https://docs.google.com/spreadsheets/d/1zGI5SV8RCZLBTL0sq9HssuMu5_q_JieZrh8aFhwIa9o/
@@ -24,6 +26,17 @@ export const syncToBackend = async (
 ): Promise<{ success: boolean; message?: string }> => {
   
   try {
+    if (file.size > MAX_SYNC_FILE_SIZE_BYTES) {
+      console.warn("Skipping Google Script file sync for large upload to avoid browser memory pressure.", {
+        fileName: file.name,
+        fileSizeBytes: file.size,
+      });
+      return {
+        success: false,
+        message: "Skipped sync for large file to avoid browser memory issues.",
+      };
+    }
+
     const base64 = arrayBufferToBase64(await file.arrayBuffer());
     const payload = {
       originalFileName: file.name,

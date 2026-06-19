@@ -60,7 +60,7 @@ export const transcribeAudio = async (
   onPartialResult?: (result: TranscriptionResult) => void,
   signal?: AbortSignal
 ): Promise<TranscriptionResult> => {
-  onStatusChange("Connecting to Deepgram + Gemini backend...", 5);
+  onStatusChange("Uploading file to backend. Larger files may take time before transcription starts...", 5);
 
   const formData = new FormData();
   formData.append("file", audioFile);
@@ -80,6 +80,8 @@ export const transcribeAudio = async (
   if (!response.body) {
     throw new Error("Backend transcription stream was unavailable.");
   }
+
+  onStatusChange("Upload complete. Waiting for backend transcription events...", 20);
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
