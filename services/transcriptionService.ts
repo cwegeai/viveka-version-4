@@ -2,6 +2,7 @@ import { TranscriptionResult } from "../types";
 import { TRANSCRIPTION_API_URL } from "./config";
 
 const CHUNKED_UPLOAD_THRESHOLD_BYTES = 0;
+const MAX_PARALLEL_UPLOADS = 4;
 
 type PipelineEventPayload = {
   stage?: string;
@@ -143,7 +144,10 @@ const uploadChunkedAudio = async (
   const chunkSizeBytes = Number(initPayload.chunk_size_bytes || 8 * 1024 * 1024);
   const totalChunks = Math.max(1, Math.ceil(audioFile.size / chunkSizeBytes));
 
-  for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
+  let nextChunkIndex = 0;
+  let uploadedBytes = 0;
+
+  const uploadSingleChunk = async (chunkIndex: number) => {
     const start = chunkIndex * chunkSizeBytes;
     const end = Math.min(audioFile.size, start + chunkSizeBytes);
     const chunk = audioFile.slice(start, end);
@@ -163,10 +167,25 @@ const uploadChunkedAudio = async (
       throw new Error(`Chunk upload failed: ${response.status} ${errorText}`.trim());
     }
 
-    const percent = Math.max(1, Math.min(100, Math.round((end / audioFile.size) * 100)));
+    uploadedBytes += chunk.size;
+    const percent = Math.max(1, Math.min(100, Math.round((uploadedBytes / audioFile.size) * 100)));
     const mappedProgress = Math.max(5, Math.min(19, Math.round((percent / 100) * 19)));
-    onStatusChange(`Uploading chunk ${chunkIndex + 1}/${totalChunks}... ${percent}%`, mappedProgress);
-  }
+    onStatusChange(
+      `Uploading chunks in parallel... ${percent}% (${Math.min(totalChunks, Math.round(uploadedBytes / chunkSizeBytes))}/${totalChunks})`,
+      mappedProgress,
+    );
+  };
+
+  const workerCount = Math.min(MAX_PARALLEL_UPLOADS, totalChunks);
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextChunkIndex < totalChunks) {
+        const currentChunkIndex = nextChunkIndex;
+        nextChunkIndex += 1;
+        await uploadSingleChunk(currentChunkIndex);
+      }
+    }),
+  );
 
   onStatusChange("Upload complete. Waiting for backend transcription events...", 20);
   const transcribeResponse = await fetch(`${TRANSCRIPTION_API_URL}/api/uploads/${uploadId}/transcribe`, {

@@ -222,9 +222,8 @@ class PipelineRunner:
 
         if duration_seconds > self.settings.gemini_auto_max_seconds:
             message = (
-                f"Transcript complete. Skipped Gemini artifacts for {duration_seconds / 60:.1f}-minute audio to prioritize speed."
+                f"Transcript complete. Skipped Gemini enrichment for {duration_seconds / 60:.1f}-minute audio to prioritize speed."
             )
-            transcript_ready_result = await self.gemini.build_transcript_ready_result(merged, include_summary=True)
             yield progress_event(PipelineStage.complete, message, progress=100)
             yield sse_event(
                 PipelineStage.complete.value,

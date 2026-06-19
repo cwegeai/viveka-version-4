@@ -492,6 +492,12 @@ class GeminiArtifactService:
                 result.executiveSynthesis = [ChunkSummary(chunk_id=1, text=result.summary)]
             return result
 
+        if not include_summary:
+            result.summary = result.summary or _fallback_interview_summary(result.turns)
+            if not result.executiveSynthesis and result.summary:
+                result.executiveSynthesis = [ChunkSummary(chunk_id=1, text=result.summary)]
+            return result
+
         if include_summary:
             combined_prompt = (
                 "You are an expert translation, transliteration, and interview summarization engine. "
@@ -518,12 +524,6 @@ class GeminiArtifactService:
                     )
             except Exception:
                 pass
-        else:
-            try:
-                result.turns = await self._repair_turn_translations(result.turns)
-            except Exception:
-                pass
-
         try:
             result.turns = await self._repair_turn_translations(result.turns)
         except Exception:
@@ -538,14 +538,11 @@ class GeminiArtifactService:
                 normalized_turns.append(turn)
         result.turns = normalized_turns
 
-        if include_summary:
-            try:
-                if not result.summary or not result.executiveSynthesis:
-                    result = await self._generate_interview_summary(result, merged)
-            except Exception:
-                pass
-        else:
-            result.summary = result.summary or _fallback_interview_summary(result.turns)
+        try:
+            if not result.summary or not result.executiveSynthesis:
+                result = await self._generate_interview_summary(result, merged)
+        except Exception:
+            pass
 
         if not result.executiveSynthesis and result.summary:
             result.executiveSynthesis = [ChunkSummary(chunk_id=1, text=result.summary)]

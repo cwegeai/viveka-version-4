@@ -5,7 +5,7 @@ import shutil
 import tempfile
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Lock
 
@@ -38,9 +38,12 @@ class UploadSession:
     upload_id: str
     workspace: Path
     source_path: Path
+    chunks_dir: Path
     file_size_bytes: int
     filename: str
     received_bytes: int = 0
+    expected_total_chunks: int | None = None
+    chunk_sizes: dict[int, int] = field(default_factory=dict)
 
 
 class UploadSessionStore:
@@ -52,11 +55,13 @@ class UploadSessionStore:
         upload_id = uuid.uuid4().hex
         workspace = Path(tempfile.mkdtemp(prefix="viveka_chunked_", dir=temp_root))
         source_path = workspace / (filename or "session_audio")
-        (workspace / "chunks").mkdir(parents=True, exist_ok=True)
+        chunks_dir = workspace / "chunks"
+        chunks_dir.mkdir(parents=True, exist_ok=True)
         session = UploadSession(
             upload_id=upload_id,
             workspace=workspace,
             source_path=source_path,
+            chunks_dir=chunks_dir,
             file_size_bytes=file_size_bytes,
             filename=filename or "session_audio",
         )
@@ -68,11 +73,29 @@ class UploadSessionStore:
         with self._lock:
             return self._sessions.get(upload_id)
 
-    def update_received_bytes(self, upload_id: str, received_bytes: int) -> None:
+    def record_chunk(self, upload_id: str, chunk_index: int, total_chunks: int, chunk_size: int) -> UploadSession | None:
         with self._lock:
             session = self._sessions.get(upload_id)
             if session is not None:
-                session.received_bytes = received_bytes
+                if session.expected_total_chunks is None:
+                    session.expected_total_chunks = total_chunks
+                elif session.expected_total_chunks != total_chunks:
+                    raise ValueError("Chunk upload total mismatch.")
+
+                previous_size = session.chunk_sizes.get(chunk_index, 0)
+                session.chunk_sizes[chunk_index] = chunk_size
+                session.received_bytes += chunk_size - previous_size
+            return session
+
+    def is_complete(self, upload_id: str) -> bool:
+        with self._lock:
+            session = self._sessions.get(upload_id)
+            if session is None or session.expected_total_chunks is None:
+                return False
+            return (
+                len(session.chunk_sizes) >= session.expected_total_chunks
+                and session.received_bytes >= session.file_size_bytes
+            )
 
     def pop(self, upload_id: str) -> UploadSession | None:
         with self._lock:
@@ -80,6 +103,20 @@ class UploadSessionStore:
 
 
 upload_sessions = UploadSessionStore()
+
+
+def _assemble_chunked_upload(session: UploadSession) -> None:
+    expected_total_chunks = session.expected_total_chunks or 0
+    if expected_total_chunks <= 0:
+        raise ValueError("Upload session is missing chunk metadata.")
+
+    with session.source_path.open("wb") as output_stream:
+        for chunk_index in range(1, expected_total_chunks + 1):
+            chunk_path = session.chunks_dir / f"{chunk_index:06d}.part"
+            if not chunk_path.exists():
+                raise FileNotFoundError(f"Missing chunk {chunk_index} for upload session {session.upload_id}.")
+            with chunk_path.open("rb") as input_stream:
+                shutil.copyfileobj(input_stream, output_stream, length=settings.upload_chunk_size_bytes)
 
 
 class RegisterRequest(BaseModel):
@@ -135,7 +172,7 @@ async def _get_current_user(authorization: str | None) -> UserRecord:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.cors_origins),
-    allow_origin_regex=r"https://.*\.netlify\.app",
+    allow_origin_regex=r"https://.*\.netlify\.app|https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -296,23 +333,34 @@ async def append_chunked_upload(
     if not session:
         raise HTTPException(status_code=404, detail="Upload session not found.")
 
-    received_bytes = session.received_bytes
-    async with aiofiles.open(session.source_path, "ab") as output_stream:
+    if chunk_index < 1 or total_chunks < 1 or chunk_index > total_chunks:
+        raise HTTPException(status_code=400, detail="Chunk metadata is invalid.")
+
+    chunk_path = session.chunks_dir / f"{chunk_index:06d}.part"
+    written_bytes = 0
+    async with aiofiles.open(chunk_path, "wb") as output_stream:
         while True:
             chunk = await file.read(settings.upload_chunk_size_bytes)
             if not chunk:
                 break
             await output_stream.write(chunk)
-            received_bytes += len(chunk)
+            written_bytes += len(chunk)
     await file.close()
-    upload_sessions.update_received_bytes(upload_id, received_bytes)
+
+    try:
+        updated_session = upload_sessions.record_chunk(upload_id, chunk_index, total_chunks, written_bytes)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if updated_session is None:
+        raise HTTPException(status_code=404, detail="Upload session not found.")
 
     return {
         "upload_id": upload_id,
         "chunk_index": chunk_index,
         "total_chunks": total_chunks,
-        "received_bytes": received_bytes,
-        "complete": received_bytes >= session.file_size_bytes,
+        "received_bytes": updated_session.received_bytes,
+        "complete": upload_sessions.is_complete(upload_id),
     }
 
 
@@ -321,7 +369,7 @@ async def transcribe_chunked_upload(upload_id: str):
     session = upload_sessions.get(upload_id)
     if not session:
         raise HTTPException(status_code=404, detail="Upload session not found.")
-    if session.received_bytes < session.file_size_bytes:
+    if not upload_sessions.is_complete(upload_id):
         raise HTTPException(status_code=400, detail="Upload is incomplete.")
 
     runner = PipelineRunner(settings)
@@ -330,9 +378,10 @@ async def transcribe_chunked_upload(upload_id: str):
         try:
             yield progress_event(
                 PipelineStage.uploading,
-                "Chunked upload complete. Starting backend pipeline...",
+                "Chunked upload complete. Assembling audio for backend pipeline...",
                 progress=20,
             )
+            await asyncio.to_thread(_assemble_chunked_upload, session)
             async for event in runner.run_saved_source(session.source_path, session.file_size_bytes, session.workspace):
                 yield event
         except Exception as exc:

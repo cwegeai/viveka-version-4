@@ -59,6 +59,43 @@ def make_settings() -> Settings:
 
 
 class GeminiTranslationRepairTests(unittest.TestCase):
+    def test_transcript_ready_fast_path_skips_gemini_calls(self) -> None:
+        service = GeminiArtifactService(make_settings())
+        merged = MergedTranscript(
+            transcript="Speaker 1: नमस्ते",
+            language="hi",
+            detected_language="hi",
+            languages=["hi"],
+            speakers=[
+                SpeakerSegment(
+                    speaker="Speaker 1",
+                    text="नमस्ते",
+                    start_time=0.0,
+                    end_time=1.0,
+                    language="hi",
+                    languages=["hi"],
+                )
+            ],
+            chunk_results=[],
+        )
+
+        class UnexpectedAsyncClient:
+            def __init__(self, *args, **kwargs):
+                raise AssertionError("Transcript-ready fast path should not call Gemini")
+
+        import backend.app.gemini_service as gemini_module
+
+        original_client = gemini_module.httpx.AsyncClient
+        gemini_module.httpx.AsyncClient = UnexpectedAsyncClient
+        try:
+            result = asyncio.run(service.build_transcript_ready_result(merged, include_summary=False))
+        finally:
+            gemini_module.httpx.AsyncClient = original_client
+
+        self.assertEqual(result.turns[0].translated, "नमस्ते")
+        self.assertTrue(bool(result.summary))
+        self.assertTrue(bool(result.executiveSynthesis))
+
     def test_generate_repairs_untranslated_non_english_turns(self) -> None:
         service = GeminiArtifactService(make_settings())
         merged = MergedTranscript(

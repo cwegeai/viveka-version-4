@@ -419,7 +419,11 @@ result.artifact2_context?.forEach(row => {
             const fileName = `Viveka_Dossier_${Date.now()}.pdf`;
             doc.save(fileName);
             const blob = doc.output('blob');
-            await uploadToMinio(new File([blob], fileName, { type: 'application/pdf' }));
+            try {
+              await uploadToMinio(new File([blob], fileName, { type: 'application/pdf' }));
+            } catch (error) {
+              console.warn('Skipping dossier sync upload:', error);
+            }
 
         } catch (error: any) {
             console.error("PDF Export Failed:", error);
@@ -824,6 +828,16 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
         return (lines.length * lineHeight) + 2;
       };
 
+      const measureTurnBlockHeight = (turn: TranscriptionResult['turns'][number]) => {
+        let height = 19;
+        height += measureWrappedTextHeight(turn.original || '', 13, 4) + 4;
+        if (turn.transliterated) {
+          height += measureWrappedTextHeight(turn.transliterated, 9, 4) + 4;
+        }
+        height += measureWrappedTextHeight(turn.translated || '', 10, 4) + 10;
+        return height;
+      };
+
       const drawSectionDivider = () => {
         pdf.setDrawColor(15, 23, 42);
         pdf.setLineWidth(1.2);
@@ -853,17 +867,17 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
       // 3. Executive Synthesis
       addWrappedText('SUMMARY OF INTERVIEW', 13, 'bold', [15, 23, 42]);
       y += 2;
-      const summaryHeight = Math.max(38, measureWrappedTextHeight(executiveText, 10, 8) + 10);
+      const summaryHeight = Math.max(38, measureWrappedTextHeight(executiveText, 10, 8) + 16);
       checkPageBreak(summaryHeight + 6);
+      const summaryTop = y;
       pdf.setFillColor(248, 250, 252);
       pdf.setDrawColor(232, 236, 243);
-      pdf.roundedRect(margin, y, contentWidth, summaryHeight, 6, 6, 'FD');
+      pdf.roundedRect(margin, summaryTop, contentWidth, summaryHeight, 6, 6, 'FD');
       pdf.setFillColor(124, 58, 237);
-      pdf.roundedRect(margin, y, 3, summaryHeight, 2, 2, 'F');
-      y += 8;
+      pdf.roundedRect(margin, summaryTop, 3, summaryHeight, 2, 2, 'F');
+      y = summaryTop + 8;
       addWrappedText(executiveText, 10, 'italic', [51, 65, 85], 8, detectFontFamily(executiveText));
-      y = margin + summaryHeight + (y - (margin + 8) < summaryHeight ? 0 : 0)
-      y += 8;
+      y = summaryTop + summaryHeight + 8;
 
       // 4. Verbatim Record
       checkPageBreak(20);
@@ -874,7 +888,7 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
       y += 10;
 
       result.turns?.forEach((turn) => {
-        checkPageBreak(52);
+        checkPageBreak(measureTurnBlockHeight(turn));
         // Speaker Header
         pdf.setFillColor(248, 250, 252);
         pdf.rect(margin, y, contentWidth, 9, 'F');
@@ -921,6 +935,9 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
         pdf.text('ENGLISH TRANSLATION', margin + 4, y);
         y += 4;
         addWrappedText(turn.translated, 10, 'italic', [51, 65, 85], 4, detectFontFamily(turn.translated));
+        pdf.setDrawColor(232, 236, 243);
+        pdf.setLineWidth(0.4);
+        pdf.line(margin, y + 1, margin + contentWidth, y + 1);
         y += 8;
       });
 
@@ -997,7 +1014,11 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
       pdf.save(fileName);
       
       const blob = pdf.output('blob');
-      await uploadToMinio(new File([blob], fileName, { type: 'application/pdf' }));
+      try {
+        await uploadToMinio(new File([blob], fileName, { type: 'application/pdf' }));
+      } catch (error) {
+        console.warn('Skipping dossier sync upload:', error);
+      }
       
     } catch (error: any) {
       console.error("Dossier Synthesis Protocol Violation:", error);

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { api } from '../services/api';
 import { getStoredUser } from '../services/authStorage';
+import { FILE_HISTORY_ENABLED } from '../services/config';
 
 export const UserProfile: React.FC = () => {
   const navigate = useNavigate();
@@ -20,6 +21,11 @@ export const UserProfile: React.FC = () => {
   useEffect(() => {
     const fetchFiles = async () => {
       setError(null);
+      if (!FILE_HISTORY_ENABLED) {
+        setFiles([]);
+        return;
+      }
+
       try {
         const data = userId ? await api.getUserFiles(userId) : await api.getMyFiles();
         setFiles(data);

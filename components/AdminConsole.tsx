@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { clearAuthStorage, getStoredUser } from '../services/authStorage';
+import { FILE_HISTORY_ENABLED } from '../services/config';
 
 export const AdminConsole: React.FC = () => {
   const navigate = useNavigate();
@@ -12,6 +13,11 @@ export const AdminConsole: React.FC = () => {
 
   useEffect(() => {
     const fetchStats = async () => {
+      if (!FILE_HISTORY_ENABLED) {
+        setStats({ total_users: 0, total_files: 0, user_stats: [] });
+        return;
+      }
+
       try {
         const data = await api.getDashboardStats();
         console.log("data:", data);
@@ -107,6 +113,12 @@ export const AdminConsole: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {!FILE_HISTORY_ENABLED && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-700 rounded-2xl px-6 py-4 text-sm font-semibold">
+            Recording history and admin file metrics are disabled in this deployment.
+          </div>
+        )}
 
         {isTruncated && (
           <div className="bg-amber-50 border border-amber-200 text-amber-700 rounded-2xl px-6 py-4 text-sm font-semibold">
