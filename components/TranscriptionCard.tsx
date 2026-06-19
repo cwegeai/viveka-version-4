@@ -677,6 +677,44 @@ const resolvePdfFontStyle = (fontName: string, preferredStyle: string): 'normal'
   return 'normal';
 };
 
+const buildExecutiveSynthesisText = (result: TranscriptionResult) => {
+  const synthesis = (result.executiveSynthesis || [])
+    .map((chunk) => (chunk.text || '').trim())
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+
+  if (synthesis) {
+    return synthesis;
+  }
+
+  const summary = (result.summary || '').trim();
+  if (summary) {
+    return summary;
+  }
+
+  const translatedTurns = (result.turns || [])
+    .slice(0, 3)
+    .map((turn) => (turn.translated || turn.original || '').trim())
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+
+  return translatedTurns || 'Transcript available. No synthesis content was generated for this export.';
+};
+
+const normalizeSpeakerLabel = (speaker: string) => {
+  const trimmed = (speaker || '').trim();
+  if (!trimmed) {
+    return 'Speaker';
+  }
+  const speakerMatch = trimmed.match(/^speaker\s*(\d+)$/i);
+  if (speakerMatch) {
+    return `Speaker ${speakerMatch[1]}`;
+  }
+  return trimmed;
+};
+
 export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalFileName, onRestart }) => {
   const [activeTab, setActiveTab] = useState<'transcript' | 'artifacts'>('transcript');
   const [isExporting, setIsExporting] = useState(false);
@@ -723,11 +761,12 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
 
     await Promise.all(loadPromises);
 
-      const margin = 20;
+      const executiveText = buildExecutiveSynthesisText(result);
+      const margin = 18;
       const pageWidth = pdf.internal.pageSize.getWidth();
       const contentWidth = pageWidth - (margin * 2);
       const pageHeight = pdf.internal.pageSize.getHeight();
-      let y = 25;
+      let y = 18;
 
       const checkPageBreak = (needed: number) => {
         if (y + needed > pageHeight - 20) {
@@ -759,78 +798,91 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
         y += 2; // Paragraph spacing
       };
 
+      const drawSectionDivider = () => {
+        pdf.setDrawColor(15, 23, 42);
+        pdf.setLineWidth(1.2);
+        pdf.line(margin, y, margin + 52, y);
+      };
+
       // 1. Header
-      pdf.setFillColor(0, 0, 0);
-      pdf.rect(margin, y, contentWidth, 15, 'F');
-      pdf.setTextColor(255, 255, 255);
-      pdf.setFontSize(15);
+      pdf.setTextColor(15, 23, 42);
       pdf.setFont('Latin', 'bold');
-      pdf.text("VIVEKA RESEARCH DOSSIER - VERBATIM SYNTHESIS", margin + 5, y + 10);
-      y += 25;
+      pdf.setFontSize(20);
+      pdf.text('Viveka Analysis Dossier', margin, y);
+      pdf.setTextColor(124, 58, 237);
+      pdf.setFontSize(7.5);
+      pdf.text('AWESOME FRAMEWORK VERIFIED  •  ' + new Date().toLocaleDateString(), margin, y + 5);
+      y += 13;
 
       // 2. Metadata Block
-      pdf.setTextColor(55, 65, 81);
-      pdf.setFontSize(8.5);
+      pdf.setTextColor(100, 116, 139);
+      pdf.setFontSize(8);
       pdf.setFont('Latin', 'bold');
-      pdf.text(`FILE: ${originalFileName || "Session_Archive"}`, margin, y);
-      pdf.text(`SYNCED: ${new Date().toLocaleString()}`, margin, y + 4);
+      pdf.text(`Source: ${originalFileName || "Session_Archive"}`, margin, y);
+      pdf.text(`Synced: ${new Date().toLocaleString()}`, margin, y + 4);
       pdf.setFont('Latin', 'normal');
-      y += 15;
+      y += 9;
+      drawSectionDivider();
+      y += 12;
 
       // 3. Executive Synthesis
-      addWrappedText("EXECUTIVE SYNTHESIS", 12, 'bold', [0, 0, 0]);
-      pdf.setDrawColor(0, 0, 0);
-      pdf.setLineWidth(1.2);
-      pdf.line(margin, y, margin + 40, y);
+      addWrappedText('EXECUTIVE SYNTHESIS', 13, 'bold', [15, 23, 42]);
+      y += 2;
+      checkPageBreak(48);
+      pdf.setFillColor(248, 250, 252);
+      pdf.setDrawColor(232, 236, 243);
+      pdf.roundedRect(margin, y, contentWidth, 46, 6, 6, 'FD');
+      pdf.setFillColor(124, 58, 237);
+      pdf.roundedRect(margin, y, 3, 46, 2, 2, 'F');
       y += 8;
-
-      result.executiveSynthesis?.forEach(chunk => {
-        addWrappedText(`[Chunk ${chunk.chunk_id}] ${chunk.text}`, 10, 'normal', [40, 40, 40]);
-        y += 4;
-      });
-
+      addWrappedText(executiveText, 10, 'italic', [51, 65, 85], 8, detectFontFamily(executiveText));
       y += 10;
 
       // 4. Verbatim Record
       checkPageBreak(20);
-      addWrappedText("VERBATIM RECORD", 12, 'bold', [0, 0, 0]);
-      pdf.line(margin, y, margin + 40, y);
-      y += 8;
+      addWrappedText('FULL VERBATIM RECORD (100%)', 12, 'bold', [15, 23, 42]);
+      pdf.setDrawColor(226, 232, 240);
+      pdf.setLineWidth(0.6);
+      pdf.line(margin, y, margin + contentWidth * 0.42, y);
+      y += 10;
 
-      result.turns?.forEach((turn, i) => {
-        checkPageBreak(30);
+      result.turns?.forEach((turn) => {
+        checkPageBreak(42);
         // Speaker Header
         pdf.setFillColor(248, 250, 252);
-        pdf.rect(margin, y, contentWidth, 10, 'F');
-        pdf.setTextColor(0, 0, 0);
-        pdf.setFontSize(9);
-        pdf.setFont('Latin', 'bold');
-        pdf.text(`${turn.speaker.toUpperCase()} - MU ${turn.mu_id}`, margin + 3, y + 6.5);
-        pdf.setTextColor(55, 65, 81);
+        pdf.rect(margin, y, contentWidth, 9, 'F');
+        pdf.setTextColor(124, 58, 237);
         pdf.setFontSize(8);
-        pdf.text(turn.timestamp, pageWidth - margin - 20, y + 6.5);
-        y += 15;
+        pdf.setFont('Latin', 'bold');
+        pdf.text(normalizeSpeakerLabel(turn.speaker).toUpperCase(), margin + 4, y + 5.8);
+        pdf.setTextColor(100, 116, 139);
+        pdf.setFont('Latin', 'normal');
+        pdf.setFontSize(7);
+        pdf.text(`At ${turn.timestamp}`, pageWidth - margin - 22, y + 5.8);
+        y += 13;
 
-        addWrappedText(`Original: ${turn.original}`, 10, 'normal', [0, 0, 0], 5, detectFontFamily(turn.original));
+        pdf.setTextColor(180, 190, 205);
+        pdf.setFont('Latin', 'bold');
+        pdf.setFontSize(6.5);
+        pdf.text('ORIGINAL SCRIPT', margin + 4, y);
+        y += 4;
+        addWrappedText(turn.original, 13, 'bold', [15, 23, 42], 4, detectFontFamily(turn.original));
 
         if (turn.transliterated) {
-          pdf.setTextColor(120, 120, 120);
-          pdf.setFontSize(7);
+          pdf.setTextColor(180, 190, 205);
+          pdf.setFontSize(6.5);
           pdf.setFont('Latin', 'bold');
-          pdf.text("TRANSLITERATION RECORD:", margin + 5, y);
+          pdf.text('PHONETIC', margin + 4, y);
           y += 4;
-          addWrappedText(turn.transliterated, 8, 'normal', [100, 100, 100], 5, detectFontFamily(turn.transliterated));
+          addWrappedText(turn.transliterated, 9, 'italic', [120, 130, 145], 4, detectFontFamily(turn.transliterated));
         }
-        // Transcript Content (Prioritizing English translation for text-readability)
-        pdf.setTextColor(120, 120, 120);
-        pdf.setFontSize(7);
+
+        pdf.setTextColor(180, 190, 205);
+        pdf.setFontSize(6.5);
         pdf.setFont('Latin', 'bold');
-        pdf.text("ENGLISH ANALYSIS TIER:", margin + 5, y);
+        pdf.text('TRANSLATION', margin + 4, y);
         y += 4;
-        addWrappedText(turn.translated, 10, 'italic', [0, 0, 0], 5, detectFontFamily(turn.translated));
-        
-        // Note: For native script fidelity (Malayalam/Hindi), we recommend the visual viewer
-        // as PDF standard fonts require embedding for Unicode ranges.
+        addWrappedText(turn.translated, 10, 'italic', [51, 65, 85], 4, detectFontFamily(turn.translated));
         y += 8;
       });
 
