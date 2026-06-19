@@ -1,7 +1,7 @@
 import { TranscriptionResult } from "../types";
 import { TRANSCRIPTION_API_URL } from "./config";
 
-const CHUNKED_UPLOAD_THRESHOLD_BYTES = 25 * 1024 * 1024;
+const CHUNKED_UPLOAD_THRESHOLD_BYTES = 0;
 
 type PipelineEventPayload = {
   stage?: string;
@@ -183,7 +183,7 @@ export const transcribeAudio = async (
   onPartialResult?: (result: TranscriptionResult) => void,
   signal?: AbortSignal
 ): Promise<TranscriptionResult> => {
-  if (audioFile.size > CHUNKED_UPLOAD_THRESHOLD_BYTES) {
+  if (audioFile.size >= CHUNKED_UPLOAD_THRESHOLD_BYTES) {
     try {
       return await uploadChunkedAudio(audioFile, onStatusChange, onPartialResult, signal);
     } catch (error: any) {

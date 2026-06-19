@@ -180,7 +180,7 @@ const Dashboard: React.FC = () => {
                 <div className="w-10 h-10 md:w-12 md:h-12 bg-slate-50 rounded-xl flex items-center justify-center shrink-0 border border-slate-100 text-lg md:text-xl">⚖️</div>
                 <div>
                   <p className="font-bold text-slate-900 text-xs md:text-sm mb-1">File Limit:</p>
-                  <p className="text-slate-500 text-[11px] md:text-xs leading-relaxed">Browser intake capped at 2 GB. Backend is designed for long-form chunked processing.</p>
+                  <p className="text-slate-500 text-[11px] md:text-xs leading-relaxed">Large uploads are accepted through chunked transfer. Backend is designed for long-form chunked processing.</p>
                 </div>
               </div>
 

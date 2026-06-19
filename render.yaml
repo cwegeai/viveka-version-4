@@ -7,6 +7,10 @@ services:
     dockerContext: .
     healthCheckPath: /healthz
     autoDeployTrigger: commit
+    disk:
+      name: viveka-data
+      mountPath: /var/data
+      sizeGB: 50
     envVars:
       - key: DEEPGRAM_API_KEY
         sync: false
@@ -26,3 +30,5 @@ services:
         value: 0.0.0.0
       - key: VIVEKA_BACKEND_PORT
         value: "10000"
+      - key: VIVEKA_TEMP_ROOT
+        value: /var/data/viveka-temp

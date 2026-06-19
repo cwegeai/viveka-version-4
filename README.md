@@ -84,6 +84,8 @@ Use [backend/.env.render.example](h:/Ammachi%20Labs/backend/.env.render.example)
 - The backend health check is [backend/app/main.py](h:/Ammachi%20Labs/backend/app/main.py) at `/healthz`.
 - The Docker image installs `ffmpeg`, which is required by [backend/app/audio.py](h:/Ammachi%20Labs/backend/app/audio.py).
 - The default [render.yaml](h:/Ammachi%20Labs/render.yaml) disables Redis-backed background jobs so the first deploy is simpler and uses the inline transcription path.
+- The Render service is configured with a persistent disk mounted at `/var/data` and uses `VIVEKA_TEMP_ROOT=/var/data/viveka-temp`, which is required if you want multi-GB uploads to be processed reliably.
+- Chunk files are now deleted immediately after each chunk is transcribed, which reduces temporary disk pressure during very large jobs.
 
 ## Core Capabilities
 

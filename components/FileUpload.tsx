@@ -5,7 +5,6 @@ interface FileUploadProps {
   isProcessing: boolean;
 }
 
-const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024;
 const ALLOWED_EXTENSIONS = [
   'mp3','wav','mpeg','mpg','m4a','mp4',
   'aac','amr','ogg','webm','flac',
@@ -24,11 +23,6 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessi
 
     if (!isAudioType && !isAllowedExt) {
       alert("Format Not Supported");
-      return;
-    }
-
-    if (file.size > MAX_FILE_SIZE) {
-      alert("File exceeds 2GB");
       return;
     }
 

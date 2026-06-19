@@ -128,24 +128,31 @@ class PipelineRunner:
                         total_chunks=total_chunks,
                     )
                 )
-                chunk_result = await self.transcriber.transcribe_chunk(
-                    manifest.chunk_id,
-                    manifest.path,
-                    manifest.start_time,
-                    manifest.end_time,
-                )
-                processed_chunks[manifest.chunk_id - 1] = chunk_result
-                completed += 1
-                progress = 35 + int((completed / total_chunks) * 35)
-                yield_queue.put_nowait(
-                    progress_event(
-                        PipelineStage.chunk_complete,
-                        f"Completed chunk {completed} of {total_chunks}",
-                        progress=progress,
-                        chunk_index=manifest.chunk_id,
-                        total_chunks=total_chunks,
+                try:
+                    chunk_result = await self.transcriber.transcribe_chunk(
+                        manifest.chunk_id,
+                        manifest.path,
+                        manifest.start_time,
+                        manifest.end_time,
                     )
-                )
+                    processed_chunks[manifest.chunk_id - 1] = chunk_result
+                    completed += 1
+                    progress = 35 + int((completed / total_chunks) * 35)
+                    yield_queue.put_nowait(
+                        progress_event(
+                            PipelineStage.chunk_complete,
+                            f"Completed chunk {completed} of {total_chunks}",
+                            progress=progress,
+                            chunk_index=manifest.chunk_id,
+                            total_chunks=total_chunks,
+                        )
+                    )
+                finally:
+                    if manifest.path != source_path:
+                        try:
+                            manifest.path.unlink(missing_ok=True)
+                        except Exception:
+                            pass
 
         yield_queue: asyncio.Queue[str] = asyncio.Queue()
         tasks = [asyncio.create_task(process_chunk(manifest)) for manifest in chunk_manifests]
