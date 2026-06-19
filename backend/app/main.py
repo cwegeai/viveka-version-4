@@ -392,6 +392,7 @@ async def transcribe_audio(
         return JSONResponse({"error": "Uploaded file was empty."}, status_code=400)
 
     queue_fallback_message: str | None = None
+    runner = PipelineRunner(settings)
 
     if _supports_background_jobs(file_size_bytes):
         job_id = uuid.uuid4().hex
@@ -423,9 +424,12 @@ async def transcribe_audio(
                         pending_events = await asyncio.to_thread(progress_store.read_events, job_id, offset)
                     except redis.RedisError:
                         yield progress_event(
-                            PipelineStage.error,
-                            "Background queue connection lost. Retry the upload; this backend is configured to run inline processing by default.",
+                            PipelineStage.uploading,
+                            "Background queue connection lost. Falling back to inline transcription...",
+                            progress=20,
                         )
+                        async for event in runner.run_saved_source(source_path, file_size_bytes, workspace):
+                            yield event
                         return
                     if pending_events:
                         saw_worker_event = True
@@ -445,15 +449,16 @@ async def transcribe_audio(
                             settings.background_job_start_timeout_seconds,
                         ):
                             yield progress_event(
-                                PipelineStage.error,
-                                "Background queue stalled before completion. Retry the upload; this backend is configured to use inline processing by default.",
+                                PipelineStage.uploading,
+                                "Background worker did not start in time. Falling back to inline transcription...",
+                                progress=20,
                             )
+                            async for event in runner.run_saved_source(source_path, file_size_bytes, workspace):
+                                yield event
                             return
                         await asyncio.sleep(settings.progress_poll_interval_seconds)
 
             return StreamingResponse(queued_event_stream(), media_type="text/event-stream")
-
-    runner = PipelineRunner(settings)
 
     async def event_stream():
         try:
