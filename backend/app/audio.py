@@ -82,46 +82,63 @@ def normalize_audio_to_wav(input_path: Path, output_path: Path, settings: Settin
     subprocess.run(command, capture_output=True, text=True, check=True)
 
 
-def split_chunks(source_audio: Path, output_dir: Path, settings: Settings) -> list[ChunkManifest]:
-    duration = probe_duration_seconds(source_audio)
+def build_chunk_plan(duration: float, settings: Settings) -> list[tuple[int, float, float]]:
     chunk_duration = settings.chunk_minutes * 60
     step = max(1, chunk_duration - settings.overlap_seconds)
-    manifests: list[ChunkManifest] = []
+    plan: list[tuple[int, float, float]] = []
 
     chunk_id = 1
     current_start = 0.0
     while current_start < duration:
         current_end = min(duration, current_start + chunk_duration)
-        output_file = output_dir / f"chunk_{chunk_id:03d}.flac"
-        command = [
-            "ffmpeg",
-            "-y",
-            "-ss",
-            str(current_start),
-            "-t",
-            str(max(1.0, current_end - current_start)),
-            "-i",
-            str(source_audio),
-            "-ac",
-            str(settings.normalized_channels),
-            "-ar",
-            str(settings.normalized_sample_rate),
-            "-vn",
-            "-c:a",
-            "flac",
-            str(output_file),
-        ]
-        subprocess.run(command, capture_output=True, text=True, check=True)
-        manifests.append(
-            ChunkManifest(
-                chunk_id=chunk_id,
-                start_time=current_start,
-                end_time=current_end,
-                path=output_file,
-            )
-        )
+        plan.append((chunk_id, current_start, current_end))
         chunk_id += 1
         current_start += step
+
+    return plan
+
+
+def create_chunk(
+    source_audio: Path,
+    output_dir: Path,
+    settings: Settings,
+    chunk_id: int,
+    start_time: float,
+    end_time: float,
+) -> ChunkManifest:
+    output_file = output_dir / f"chunk_{chunk_id:03d}.flac"
+    command = [
+        "ffmpeg",
+        "-y",
+        "-ss",
+        str(start_time),
+        "-t",
+        str(max(1.0, end_time - start_time)),
+        "-i",
+        str(source_audio),
+        "-ac",
+        str(settings.normalized_channels),
+        "-ar",
+        str(settings.normalized_sample_rate),
+        "-vn",
+        "-c:a",
+        "flac",
+        str(output_file),
+    ]
+    subprocess.run(command, capture_output=True, text=True, check=True)
+    return ChunkManifest(
+        chunk_id=chunk_id,
+        start_time=start_time,
+        end_time=end_time,
+        path=output_file,
+    )
+
+
+def split_chunks(source_audio: Path, output_dir: Path, settings: Settings) -> list[ChunkManifest]:
+    duration = probe_duration_seconds(source_audio)
+    manifests: list[ChunkManifest] = []
+    for chunk_id, current_start, current_end in build_chunk_plan(duration, settings):
+        manifests.append(create_chunk(source_audio, output_dir, settings, chunk_id, current_start, current_end))
 
     return manifests
 

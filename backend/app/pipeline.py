@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import UploadFile
 
-from .audio import ChunkManifest, prepare_chunks, probe_duration_seconds, stream_upload_to_disk
+from .audio import ChunkManifest, build_chunk_plan, create_chunk, prepare_chunks, probe_duration_seconds, stream_upload_to_disk
 from .config import Settings
 from .deepgram_service import DeepgramTranscriptionService
 from .events import progress_event, sse_event
@@ -70,6 +70,7 @@ class PipelineRunner:
         chunks_dir.mkdir(parents=True, exist_ok=True)
         yield progress_event(PipelineStage.splitting, "Probing and preparing audio...", progress=25)
         duration_seconds = await asyncio.to_thread(probe_duration_seconds, source_path)
+        chunk_plan: list[tuple[int, float, float]] | None = None
         if duration_seconds <= self.settings.direct_transcribe_max_seconds:
             chunk_manifests = [
                 ChunkManifest(
@@ -86,15 +87,16 @@ class PipelineRunner:
                 total_chunks=1,
             )
         else:
-            chunk_manifests = await prepare_chunks(source_path, workspace, self.settings)
-        total_chunks = len(chunk_manifests)
+            chunk_plan = build_chunk_plan(duration_seconds, self.settings)
+            chunk_manifests = []
+        total_chunks = len(chunk_manifests) if chunk_plan is None else len(chunk_plan)
         if total_chunks == 0:
             yield progress_event(PipelineStage.error, "Audio preprocessing did not produce any chunks.", progress=35)
             return
         if duration_seconds > self.settings.direct_transcribe_max_seconds:
             yield progress_event(
                 PipelineStage.splitting,
-                f"Created {total_chunks} chunk(s) from {duration_seconds / 60:.1f} minutes of audio.",
+                f"Preparing {total_chunks} chunk(s) from {duration_seconds / 60:.1f} minutes of audio and starting transcription immediately.",
                 progress=35,
                 total_chunks=total_chunks,
             )
@@ -148,7 +150,24 @@ class PipelineRunner:
         yield_queue: asyncio.Queue[str] = asyncio.Queue()
         tasks = [asyncio.create_task(process_chunk(manifest)) for manifest in chunk_manifests]
 
-        while tasks:
+        producer_task: asyncio.Task[None] | None = None
+        if chunk_plan is not None:
+            async def produce_chunks() -> None:
+                for chunk_id, start_time, end_time in chunk_plan:
+                    manifest = await asyncio.to_thread(
+                        create_chunk,
+                        source_path,
+                        chunks_dir,
+                        self.settings,
+                        chunk_id,
+                        start_time,
+                        end_time,
+                    )
+                    tasks.append(asyncio.create_task(process_chunk(manifest)))
+
+            producer_task = asyncio.create_task(produce_chunks())
+
+        while tasks or (producer_task is not None and not producer_task.done()):
             try:
                 event_payload = await asyncio.wait_for(yield_queue.get(), timeout=0.25)
                 yield event_payload
@@ -157,6 +176,9 @@ class PipelineRunner:
                 pass
 
             tasks = [task for task in tasks if not task.done()]
+
+            if producer_task is not None and producer_task.done() and producer_task.exception() is not None:
+                raise producer_task.exception()
 
             if tasks and time.monotonic() - last_progress_heartbeat >= 5:
                 active_chunks = len(tasks)
@@ -171,6 +193,9 @@ class PipelineRunner:
 
         while not yield_queue.empty():
             yield await yield_queue.get()
+
+        if producer_task is not None:
+            await producer_task
 
         final_chunks = [chunk for chunk in processed_chunks if chunk is not None]
 
