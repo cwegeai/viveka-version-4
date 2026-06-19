@@ -66,36 +66,38 @@ export const transcribeAudio = async (
   formData.append("file", audioFile);
   formData.append("file_size_bytes", String(audioFile.size));
 
-  const response = await fetch(`${TRANSCRIPTION_API_URL}/api/transcribe`, {
-    method: "POST",
-    body: formData,
-    signal,
-  });
+  return await new Promise<TranscriptionResult>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    let buffer = "";
+    let processedLength = 0;
+    let finalResult: TranscriptionResult | null = null;
+    let uploadCompleted = false;
+    let settled = false;
 
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "");
-    throw new Error(`Backend transcription failed: ${response.status} ${errorText}`.trim());
-  }
+    const rejectOnce = (error: Error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      reject(error);
+    };
 
-  if (!response.body) {
-    throw new Error("Backend transcription stream was unavailable.");
-  }
+    const resolveOnce = (result: TranscriptionResult) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve(result);
+    };
 
-  onStatusChange("Upload complete. Waiting for backend transcription events...", 20);
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let finalResult: TranscriptionResult | null = null;
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
+    const processSseBuffer = () => {
+      const nextChunk = xhr.responseText.slice(processedLength);
+      processedLength = xhr.responseText.length;
+      if (!nextChunk) {
+        return;
       }
 
-      buffer += decoder.decode(value, { stream: true });
+      buffer += nextChunk;
       const { events, remainder } = parseEventBlocks(buffer);
       buffer = remainder;
 
@@ -105,7 +107,8 @@ export const transcribeAudio = async (
         }
 
         if (event.event === "error") {
-          throw new Error(event.payload.message || "Backend transcription failed.");
+          rejectOnce(new Error(event.payload.message || "Backend transcription failed."));
+          return;
         }
 
         if (event.event === "result" && event.payload.result) {
@@ -116,21 +119,79 @@ export const transcribeAudio = async (
           finalResult = normalizeBackendResult(event.payload.result);
         }
       }
+    };
+
+    xhr.open("POST", `${TRANSCRIPTION_API_URL}/api/transcribe`, true);
+
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable || uploadCompleted) {
+        return;
+      }
+
+      const percent = Math.max(1, Math.min(100, Math.round((event.loaded / event.total) * 100)));
+      const mappedProgress = Math.max(5, Math.min(19, Math.round((percent / 100) * 19)));
+      onStatusChange(`Uploading to backend... ${percent}%`, mappedProgress);
+    };
+
+    xhr.onreadystatechange = () => {
+      if (xhr.readyState >= XMLHttpRequest.HEADERS_RECEIVED && !uploadCompleted) {
+        uploadCompleted = true;
+        onStatusChange("Upload complete. Waiting for backend transcription events...", 20);
+      }
+    };
+
+    xhr.onprogress = () => {
+      processSseBuffer();
+    };
+
+    xhr.onerror = () => {
+      rejectOnce(new Error("Network error while contacting backend transcription service."));
+    };
+
+    xhr.onabort = () => {
+      const abortError = new Error("The transcription request was aborted.") as Error & { name?: string };
+      abortError.name = "AbortError";
+      rejectOnce(abortError);
+    };
+
+    xhr.onload = () => {
+      processSseBuffer();
+
+      if (xhr.status < 200 || xhr.status >= 300) {
+        rejectOnce(new Error(`Backend transcription failed: ${xhr.status} ${xhr.responseText}`.trim()));
+        return;
+      }
+
+      if (!finalResult) {
+        rejectOnce(new Error("Backend transcription completed without a final result."));
+        return;
+      }
+
+      onStatusChange("Dossier synced from backend pipeline.", 100);
+      resolveOnce(finalResult);
+    };
+
+    if (signal) {
+      if (signal.aborted) {
+        xhr.abort();
+        return;
+      }
+
+      signal.addEventListener(
+        "abort",
+        () => {
+          xhr.abort();
+        },
+        { once: true }
+      );
     }
-  } catch (error: any) {
+
+    xhr.send(formData);
+  }).catch((error: any) => {
     if (error?.name === "AbortError") {
       throw error;
     }
     console.error("Transcription pipeline error:", error);
     throw new Error(`Viveka Analysis Failure: ${error.message}`);
-  } finally {
-    reader.releaseLock();
-  }
-
-  if (!finalResult) {
-    throw new Error("Backend transcription completed without a final result.");
-  }
-
-  onStatusChange("Dossier synced from backend pipeline.", 100);
-  return finalResult;
+  });
 };
