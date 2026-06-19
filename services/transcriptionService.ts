@@ -39,6 +39,30 @@ const parseEventBlocks = (buffer: string) => {
   return { events, remainder };
 };
 
+const parseTrailingEventBlock = (buffer: string) => {
+  const trimmed = buffer.trim();
+  if (!trimmed) {
+    return [] as Array<{ event: string; payload: PipelineEventPayload }>;
+  }
+
+  const lines = trimmed.split("\n");
+  const event = lines.find((line) => line.startsWith("event:"))?.slice(6).trim() || "message";
+  const data = lines
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trim())
+    .join("\n");
+
+  if (!data) {
+    return [] as Array<{ event: string; payload: PipelineEventPayload }>;
+  }
+
+  try {
+    return [{ event, payload: JSON.parse(data) as PipelineEventPayload }];
+  } catch {
+    return [] as Array<{ event: string; payload: PipelineEventPayload }>;
+  }
+};
+
 const normalizeBackendResult = (result?: Partial<TranscriptionResult>): TranscriptionResult => ({
   turns: result?.turns || [],
   executiveSynthesis: result?.executiveSynthesis || [],
@@ -74,6 +98,30 @@ const consumeSseResponse = async (
   const decoder = new TextDecoder();
   let buffer = "";
   let finalResult: TranscriptionResult | null = null;
+  let partialResult: TranscriptionResult | null = null;
+  let lastStatusMessage = "";
+
+  const handleEvents = (events: Array<{ event: string; payload: PipelineEventPayload }>) => {
+    for (const event of events) {
+      if (event.payload.message) {
+        lastStatusMessage = event.payload.message;
+        onStatusChange(event.payload.message, event.payload.progress);
+      }
+
+      if (event.event === "error") {
+        throw new Error(event.payload.message || "Backend transcription failed.");
+      }
+
+      if (event.event === "result" && event.payload.result) {
+        partialResult = normalizeBackendResult(event.payload.result);
+        onPartialResult?.(partialResult);
+      }
+
+      if (event.event === "complete" && event.payload.result) {
+        finalResult = normalizeBackendResult(event.payload.result);
+      }
+    }
+  };
 
   try {
     while (true) {
@@ -85,31 +133,21 @@ const consumeSseResponse = async (
       buffer += decoder.decode(value, { stream: true });
       const { events, remainder } = parseEventBlocks(buffer);
       buffer = remainder;
-
-      for (const event of events) {
-        if (event.payload.message) {
-          onStatusChange(event.payload.message, event.payload.progress);
-        }
-
-        if (event.event === "error") {
-          throw new Error(event.payload.message || "Backend transcription failed.");
-        }
-
-        if (event.event === "result" && event.payload.result) {
-          onPartialResult?.(normalizeBackendResult(event.payload.result));
-        }
-
-        if (event.event === "complete" && event.payload.result) {
-          finalResult = normalizeBackendResult(event.payload.result);
-        }
-      }
+      handleEvents(events);
     }
+
+    buffer += decoder.decode();
+    handleEvents(parseTrailingEventBlock(buffer));
   } finally {
     reader.releaseLock();
   }
 
   if (!finalResult) {
-    throw new Error("Backend transcription completed without a final result.");
+    if (partialResult) {
+      onStatusChange(lastStatusMessage || "Backend stream ended before completion. Showing the latest available result.", 100);
+      return partialResult;
+    }
+    throw new Error(lastStatusMessage || "Backend transcription stream ended without a final result.");
   }
 
   onStatusChange("Dossier synced from backend pipeline.", 100);
@@ -225,8 +263,10 @@ export const transcribeAudio = async (
     let buffer = "";
     let processedLength = 0;
     let finalResult: TranscriptionResult | null = null;
+    let partialResult: TranscriptionResult | null = null;
     let uploadCompleted = false;
     let settled = false;
+    let lastStatusMessage = "";
 
     const rejectOnce = (error: Error) => {
       if (settled) {
@@ -257,6 +297,7 @@ export const transcribeAudio = async (
 
       for (const event of events) {
         if (event.payload.message) {
+          lastStatusMessage = event.payload.message;
           onStatusChange(event.payload.message, event.payload.progress);
         }
 
@@ -266,7 +307,8 @@ export const transcribeAudio = async (
         }
 
         if (event.event === "result" && event.payload.result) {
-          onPartialResult?.(normalizeBackendResult(event.payload.result));
+          partialResult = normalizeBackendResult(event.payload.result);
+          onPartialResult?.(partialResult);
         }
 
         if (event.event === "complete" && event.payload.result) {
@@ -311,13 +353,40 @@ export const transcribeAudio = async (
     xhr.onload = () => {
       processSseBuffer();
 
+      const trailingEvents = parseTrailingEventBlock(buffer);
+      for (const event of trailingEvents) {
+        if (event.payload.message) {
+          lastStatusMessage = event.payload.message;
+          onStatusChange(event.payload.message, event.payload.progress);
+        }
+
+        if (event.event === "error") {
+          rejectOnce(new Error(event.payload.message || "Backend transcription failed."));
+          return;
+        }
+
+        if (event.event === "result" && event.payload.result) {
+          partialResult = normalizeBackendResult(event.payload.result);
+          onPartialResult?.(partialResult);
+        }
+
+        if (event.event === "complete" && event.payload.result) {
+          finalResult = normalizeBackendResult(event.payload.result);
+        }
+      }
+
       if (xhr.status < 200 || xhr.status >= 300) {
         rejectOnce(new Error(`Backend transcription failed: ${xhr.status} ${xhr.responseText}`.trim()));
         return;
       }
 
       if (!finalResult) {
-        rejectOnce(new Error("Backend transcription completed without a final result."));
+        if (partialResult) {
+          onStatusChange(lastStatusMessage || "Backend stream ended before completion. Showing the latest available result.", 100);
+          resolveOnce(partialResult);
+          return;
+        }
+        rejectOnce(new Error(lastStatusMessage || "Backend transcription stream ended without a final result."));
         return;
       }
 
