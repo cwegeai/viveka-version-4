@@ -1,6 +1,8 @@
 import { TranscriptionResult } from "../types";
 import { TRANSCRIPTION_API_URL } from "./config";
 
+const CHUNKED_UPLOAD_THRESHOLD_BYTES = 25 * 1024 * 1024;
+
 type PipelineEventPayload = {
   stage?: string;
   message?: string;
@@ -53,6 +55,127 @@ const normalizeBackendResult = (result?: Partial<TranscriptionResult>): Transcri
   chunk_results: result?.chunk_results || [],
 });
 
+const consumeSseResponse = async (
+  response: Response,
+  onStatusChange: (status: string, progress?: number) => void,
+  onPartialResult?: (result: TranscriptionResult) => void,
+): Promise<TranscriptionResult> => {
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    throw new Error(`Backend transcription failed: ${response.status} ${errorText}`.trim());
+  }
+
+  if (!response.body) {
+    throw new Error("Backend transcription stream was unavailable.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalResult: TranscriptionResult | null = null;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      const { events, remainder } = parseEventBlocks(buffer);
+      buffer = remainder;
+
+      for (const event of events) {
+        if (event.payload.message) {
+          onStatusChange(event.payload.message, event.payload.progress);
+        }
+
+        if (event.event === "error") {
+          throw new Error(event.payload.message || "Backend transcription failed.");
+        }
+
+        if (event.event === "result" && event.payload.result) {
+          onPartialResult?.(normalizeBackendResult(event.payload.result));
+        }
+
+        if (event.event === "complete" && event.payload.result) {
+          finalResult = normalizeBackendResult(event.payload.result);
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (!finalResult) {
+    throw new Error("Backend transcription completed without a final result.");
+  }
+
+  onStatusChange("Dossier synced from backend pipeline.", 100);
+  return finalResult;
+};
+
+const uploadChunkedAudio = async (
+  audioFile: File,
+  onStatusChange: (status: string, progress?: number) => void,
+  onPartialResult?: (result: TranscriptionResult) => void,
+  signal?: AbortSignal,
+): Promise<TranscriptionResult> => {
+  onStatusChange("Starting chunked upload session...", 5);
+
+  const initResponse = await fetch(`${TRANSCRIPTION_API_URL}/api/uploads/init`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      filename: audioFile.name,
+      file_size_bytes: audioFile.size,
+    }),
+    signal,
+  });
+
+  if (!initResponse.ok) {
+    const errorText = await initResponse.text().catch(() => "");
+    throw new Error(`Failed to initialize upload session: ${initResponse.status} ${errorText}`.trim());
+  }
+
+  const initPayload = await initResponse.json();
+  const uploadId = String(initPayload.upload_id || "");
+  const chunkSizeBytes = Number(initPayload.chunk_size_bytes || 8 * 1024 * 1024);
+  const totalChunks = Math.max(1, Math.ceil(audioFile.size / chunkSizeBytes));
+
+  for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
+    const start = chunkIndex * chunkSizeBytes;
+    const end = Math.min(audioFile.size, start + chunkSizeBytes);
+    const chunk = audioFile.slice(start, end);
+    const chunkFormData = new FormData();
+    chunkFormData.append("file", chunk, `${audioFile.name}.part${chunkIndex + 1}`);
+    chunkFormData.append("chunk_index", String(chunkIndex + 1));
+    chunkFormData.append("total_chunks", String(totalChunks));
+
+    const response = await fetch(`${TRANSCRIPTION_API_URL}/api/uploads/${uploadId}/chunk`, {
+      method: "POST",
+      body: chunkFormData,
+      signal,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "");
+      throw new Error(`Chunk upload failed: ${response.status} ${errorText}`.trim());
+    }
+
+    const percent = Math.max(1, Math.min(100, Math.round((end / audioFile.size) * 100)));
+    const mappedProgress = Math.max(5, Math.min(19, Math.round((percent / 100) * 19)));
+    onStatusChange(`Uploading chunk ${chunkIndex + 1}/${totalChunks}... ${percent}%`, mappedProgress);
+  }
+
+  onStatusChange("Upload complete. Waiting for backend transcription events...", 20);
+  const transcribeResponse = await fetch(`${TRANSCRIPTION_API_URL}/api/uploads/${uploadId}/transcribe`, {
+    method: "POST",
+    signal,
+  });
+  return consumeSseResponse(transcribeResponse, onStatusChange, onPartialResult);
+};
+
 export const transcribeAudio = async (
   audioFile: File,
   _mimeType: string,
@@ -60,6 +183,18 @@ export const transcribeAudio = async (
   onPartialResult?: (result: TranscriptionResult) => void,
   signal?: AbortSignal
 ): Promise<TranscriptionResult> => {
+  if (audioFile.size > CHUNKED_UPLOAD_THRESHOLD_BYTES) {
+    try {
+      return await uploadChunkedAudio(audioFile, onStatusChange, onPartialResult, signal);
+    } catch (error: any) {
+      if (error?.name === "AbortError") {
+        throw error;
+      }
+      console.error("Chunked upload pipeline error:", error);
+      throw new Error(`Viveka Analysis Failure: ${error.message}`);
+    }
+  }
+
   onStatusChange("Uploading file to backend. Larger files may take time before transcription starts...", 5);
 
   const formData = new FormData();

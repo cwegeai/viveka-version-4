@@ -5,8 +5,11 @@ import shutil
 import tempfile
 import time
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 
+import aiofiles
 import psycopg
 import redis
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
@@ -30,6 +33,55 @@ progress_store = get_progress_store(settings)
 auth_repository = AuthRepository(settings)
 
 
+@dataclass
+class UploadSession:
+    upload_id: str
+    workspace: Path
+    source_path: Path
+    file_size_bytes: int
+    filename: str
+    received_bytes: int = 0
+
+
+class UploadSessionStore:
+    def __init__(self):
+        self._lock = Lock()
+        self._sessions: dict[str, UploadSession] = {}
+
+    def create(self, temp_root: Path, filename: str, file_size_bytes: int) -> UploadSession:
+        upload_id = uuid.uuid4().hex
+        workspace = Path(tempfile.mkdtemp(prefix="viveka_chunked_", dir=temp_root))
+        source_path = workspace / (filename or "session_audio")
+        (workspace / "chunks").mkdir(parents=True, exist_ok=True)
+        session = UploadSession(
+            upload_id=upload_id,
+            workspace=workspace,
+            source_path=source_path,
+            file_size_bytes=file_size_bytes,
+            filename=filename or "session_audio",
+        )
+        with self._lock:
+            self._sessions[upload_id] = session
+        return session
+
+    def get(self, upload_id: str) -> UploadSession | None:
+        with self._lock:
+            return self._sessions.get(upload_id)
+
+    def update_received_bytes(self, upload_id: str, received_bytes: int) -> None:
+        with self._lock:
+            session = self._sessions.get(upload_id)
+            if session is not None:
+                session.received_bytes = received_bytes
+
+    def pop(self, upload_id: str) -> UploadSession | None:
+        with self._lock:
+            return self._sessions.pop(upload_id, None)
+
+
+upload_sessions = UploadSessionStore()
+
+
 class RegisterRequest(BaseModel):
     full_name: str
     email: str
@@ -46,6 +98,11 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str = Field(min_length=8)
+
+
+class UploadInitRequest(BaseModel):
+    filename: str
+    file_size_bytes: int = Field(gt=0)
 
 
 def _extract_bearer_token(authorization: str | None) -> str | None:
@@ -216,6 +273,76 @@ async def auth_me(authorization: str | None = Header(default=None)):
         "affiliation": user.affiliation,
         "nationality_name": user.nationality_name,
     }
+
+
+@app.post("/api/uploads/init")
+async def init_chunked_upload(payload: UploadInitRequest):
+    session = upload_sessions.create(settings.temp_root, payload.filename, payload.file_size_bytes)
+    return {
+        "upload_id": session.upload_id,
+        "chunk_size_bytes": settings.upload_chunk_size_bytes,
+        "file_size_bytes": session.file_size_bytes,
+    }
+
+
+@app.post("/api/uploads/{upload_id}/chunk")
+async def append_chunked_upload(
+    upload_id: str,
+    chunk_index: int = Form(...),
+    total_chunks: int = Form(...),
+    file: UploadFile = File(...),
+):
+    session = upload_sessions.get(upload_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Upload session not found.")
+
+    received_bytes = session.received_bytes
+    async with aiofiles.open(session.source_path, "ab") as output_stream:
+        while True:
+            chunk = await file.read(settings.upload_chunk_size_bytes)
+            if not chunk:
+                break
+            await output_stream.write(chunk)
+            received_bytes += len(chunk)
+    await file.close()
+    upload_sessions.update_received_bytes(upload_id, received_bytes)
+
+    return {
+        "upload_id": upload_id,
+        "chunk_index": chunk_index,
+        "total_chunks": total_chunks,
+        "received_bytes": received_bytes,
+        "complete": received_bytes >= session.file_size_bytes,
+    }
+
+
+@app.post("/api/uploads/{upload_id}/transcribe")
+async def transcribe_chunked_upload(upload_id: str):
+    session = upload_sessions.get(upload_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Upload session not found.")
+    if session.received_bytes < session.file_size_bytes:
+        raise HTTPException(status_code=400, detail="Upload is incomplete.")
+
+    runner = PipelineRunner(settings)
+
+    async def event_stream():
+        try:
+            yield progress_event(
+                PipelineStage.uploading,
+                "Chunked upload complete. Starting backend pipeline...",
+                progress=20,
+            )
+            async for event in runner.run_saved_source(session.source_path, session.file_size_bytes, session.workspace):
+                yield event
+        except Exception as exc:
+            yield progress_event(PipelineStage.error, f"Pipeline failed: {exc}")
+        finally:
+            finalized = upload_sessions.pop(upload_id)
+            if finalized:
+                shutil.rmtree(finalized.workspace, ignore_errors=True)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 def _supports_background_jobs(file_size_bytes: int) -> bool:
