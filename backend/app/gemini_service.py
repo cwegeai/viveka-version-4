@@ -2,17 +2,32 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from typing import Any
 
 import httpx
+from deep_translator import GoogleTranslator
 
 from .config import Settings
 from .merge_engine import format_timestamp
-from .models import ChunkSummary, FinalResult, MergedTranscript, TranscriptTurn
+from .models import ChunkSummary, ContextMatrixRow, EvidenceMatrixRow, FinalResult, HotspotItem, MechanismChain, MergedTranscript, SmartStrategy, TranscriptTurn
 
 
 def _contains_non_ascii_letters(text: str) -> bool:
     return any(ord(char) > 127 and char.isalpha() for char in (text or ""))
+
+
+NON_ASCII_RUN_PATTERN = re.compile(r"[^\x00-\x7F]+")
+
+
+def _looks_untranslated(original: str, translated: str) -> bool:
+    normalized_original = (original or "").strip()
+    normalized_translated = (translated or "").strip()
+    if not normalized_original:
+        return False
+    if not normalized_translated:
+        return True
+    return normalized_original == normalized_translated
 
 
 def _summary_source_text(turn: TranscriptTurn) -> str:
@@ -28,6 +43,15 @@ def _fallback_interview_summary(turns: list[TranscriptTurn]) -> str:
     if snippets:
         return " ".join(snippets)
     return "Interview transcript generated."
+
+
+def _fallback_key_points(turns: list[TranscriptTurn]) -> list[str]:
+    points: list[str] = []
+    for turn in turns[:3]:
+        text = _summary_source_text(turn).strip()
+        if text and text not in points:
+            points.append(text)
+    return points
 
 
 def _needs_turn_translation(turn: TranscriptTurn) -> bool:
@@ -163,6 +187,127 @@ class GeminiArtifactService:
     def __init__(self, settings: Settings):
         self.settings = settings
 
+    async def _fallback_translate_text(self, text: str) -> str:
+        if not text.strip() or not _contains_non_ascii_letters(text):
+            return text
+
+        def _translate() -> str:
+            return GoogleTranslator(source='auto', target='en').translate(text)
+
+        try:
+            translated = await asyncio.to_thread(_translate)
+            if translated and translated.strip() and translated.strip() != text.strip():
+                return translated.strip()
+        except Exception:
+            pass
+
+        # Mixed-script fallback: translate each non-Latin span independently and keep
+        # surrounding English text unchanged.
+        parts: list[str] = []
+        last_index = 0
+        changed = False
+        for match in NON_ASCII_RUN_PATTERN.finditer(text):
+            start, end = match.span()
+            if start > last_index:
+                parts.append(text[last_index:start])
+            segment = match.group(0)
+            try:
+                translated_segment = await asyncio.to_thread(
+                    lambda s=segment: GoogleTranslator(source='auto', target='en').translate(s)
+                )
+            except Exception:
+                translated_segment = segment
+            if translated_segment and translated_segment != segment:
+                changed = True
+            parts.append(translated_segment or segment)
+            last_index = end
+
+        if last_index < len(text):
+            parts.append(text[last_index:])
+
+        rebuilt = ''.join(parts).strip()
+        if changed and rebuilt:
+            return rebuilt
+        return text
+
+    async def _ensure_english_summary_content(self, result: FinalResult) -> FinalResult:
+        if _contains_non_ascii_letters(result.summary):
+            result.summary = await self._fallback_translate_text(result.summary)
+
+        normalized_exec: list[ChunkSummary] = []
+        for item in result.executiveSynthesis:
+            text = item.text
+            if _contains_non_ascii_letters(text):
+                text = await self._fallback_translate_text(text)
+            normalized_exec.append(ChunkSummary(chunk_id=item.chunk_id, text=text))
+        result.executiveSynthesis = normalized_exec
+
+        if not result.executiveSynthesis and result.summary:
+            result.executiveSynthesis = [ChunkSummary(chunk_id=1, text=result.summary)]
+
+        normalized_points: list[str] = []
+        for point in result.keyPoints:
+            if _contains_non_ascii_letters(point):
+                point = await self._fallback_translate_text(point)
+            point = point.strip()
+            if point and point not in normalized_points:
+                normalized_points.append(point)
+        result.keyPoints = normalized_points
+
+        if not result.keyPoints:
+            result.keyPoints = _fallback_key_points(result.turns)
+
+        return result
+
+    def _build_fallback_artifacts(self, result: FinalResult) -> FinalResult:
+        if not result.artifact1_evidence:
+            result.artifact1_evidence = [
+                EvidenceMatrixRow(
+                    dimension="Interview Excerpt",
+                    domain="Transcript",
+                    evidence=_summary_source_text(turn),
+                    reasoning="Auto-generated fallback from translated transcript turn.",
+                )
+                for turn in result.turns[:2]
+                if _summary_source_text(turn).strip()
+            ]
+
+        if not result.artifact2_context and result.summary:
+            result.artifact2_context = [
+                ContextMatrixRow(
+                    contextLevel="Interview Summary",
+                    domain="Conversation",
+                    finding=result.summary,
+                )
+            ]
+
+        if not result.artifact3_chains and result.keyPoints:
+            result.artifact3_chains = [
+                MechanismChain(
+                    chain_id="C1",
+                    pathway=result.keyPoints[0],
+                    impacts="Auto-generated fallback pathway from the current interview output.",
+                )
+            ]
+
+        if not result.artifact5_hotspots and result.keyPoints:
+            result.artifact5_hotspots = [
+                HotspotItem(
+                    vulnerable=result.keyPoints[0],
+                    drivers="Auto-generated fallback hotspot from the current interview output.",
+                )
+            ]
+
+        if not result.strategies and result.keyPoints:
+            result.strategies = [
+                SmartStrategy(
+                    strategy="Review key interview themes",
+                    indicator=result.keyPoints[0],
+                )
+            ]
+
+        return result
+
     async def _request_json(self, prompt: str, *, timeout: float = 180.0) -> dict[str, Any] | None:
         url = (
             f"{self.settings.gemini_base_url}/models/{self.settings.gemini_model}:generateContent"
@@ -280,7 +425,12 @@ class GeminiArtifactService:
                 return turn
             repaired_turn = repaired_turns[0]
             if _needs_turn_translation(repaired_turn):
-                return turn
+                fallback_translated = await self._fallback_translate_text(turn.original)
+                return turn.model_copy(
+                    update={
+                        'translated': fallback_translated,
+                    }
+                )
             return turn.model_copy(
                 update={
                     'transliterated': repaired_turn.transliterated or turn.transliterated,
@@ -290,7 +440,8 @@ class GeminiArtifactService:
                 }
             )
         except Exception:
-            return turn
+            fallback_translated = await self._fallback_translate_text(turn.original)
+            return turn.model_copy(update={'translated': fallback_translated})
 
     async def _generate_interview_summary(self, result: FinalResult, merged: MergedTranscript) -> FinalResult:
         fallback_summary = _fallback_interview_summary(result.turns)
@@ -378,6 +529,15 @@ class GeminiArtifactService:
         except Exception:
             pass
 
+        normalized_turns: list[TranscriptTurn] = []
+        for turn in result.turns:
+            if _looks_untranslated(turn.original, turn.translated) and _contains_non_ascii_letters(turn.original):
+                fallback_translated = await self._fallback_translate_text(turn.original)
+                normalized_turns.append(turn.model_copy(update={'translated': fallback_translated}))
+            else:
+                normalized_turns.append(turn)
+        result.turns = normalized_turns
+
         if include_summary:
             try:
                 if not result.summary or not result.executiveSynthesis:
@@ -389,6 +549,7 @@ class GeminiArtifactService:
 
         if not result.executiveSynthesis and result.summary:
             result.executiveSynthesis = [ChunkSummary(chunk_id=1, text=result.summary)]
+        result = await self._ensure_english_summary_content(result)
         return result
 
     async def _generate_artifact_sections(self, result: FinalResult, merged: MergedTranscript) -> FinalResult:
@@ -462,6 +623,8 @@ class GeminiArtifactService:
     async def generate(self, merged: MergedTranscript) -> FinalResult:
         result = await self.build_transcript_ready_result(merged, include_summary=True)
         result = await self._generate_artifact_sections(result, merged)
+        result = await self._ensure_english_summary_content(result)
+        result = self._build_fallback_artifacts(result)
 
         if not result.keyPoints and result.artifact1_evidence:
             result.keyPoints = [item.evidence for item in result.artifact1_evidence if item.evidence]

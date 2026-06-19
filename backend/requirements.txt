@@ -7,3 +7,4 @@ python-dotenv==1.1.1
 dramatiq[redis]==1.18.0
 psycopg[binary]==3.2.9
 redis==6.2.0
+deep-translator==1.11.4
