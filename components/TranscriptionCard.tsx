@@ -517,19 +517,19 @@ const TranscriptView: React.FC<{ result: TranscriptionResult }> = ({ result }) =
 
             <div className="pl-8 space-y-6 border-l-8 border-slate-50 group-hover:border-violet-200 transition-colors">
               <div className="space-y-3">
-                 <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Original Transcription</p>
+                 <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Original</p>
                  <div className="text-4xl font-bold text-slate-900 leading-snug indian-script">{s(turn.original)}</div>
               </div>
               
               {turn.transliterated && (
                 <div className="space-y-2">
-                  <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Phonetic Record</p>
+                  <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Transliteration</p>
                   <div className="text-base font-bold text-slate-400 italic tracking-tight">{s(turn.transliterated)}</div>
                 </div>
               )}
 
               <div className="space-y-3 pt-4 border-t border-slate-50">
-                 <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">English Analysis Tier</p>
+                 <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">English Translation</p>
                  <div className="text-2xl text-slate-700 font-serif leading-relaxed italic">"{s(turn.translated)}"</div>
               </div>
             </div>
@@ -864,7 +864,7 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
         pdf.setTextColor(180, 190, 205);
         pdf.setFont('Latin', 'bold');
         pdf.setFontSize(6.5);
-        pdf.text('ORIGINAL SCRIPT', margin + 4, y);
+        pdf.text('ORIGINAL', margin + 4, y);
         y += 4;
         addWrappedText(turn.original, 13, 'bold', [15, 23, 42], 4, detectFontFamily(turn.original));
 
@@ -872,7 +872,7 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
           pdf.setTextColor(180, 190, 205);
           pdf.setFontSize(6.5);
           pdf.setFont('Latin', 'bold');
-          pdf.text('PHONETIC', margin + 4, y);
+          pdf.text('TRANSLITERATION', margin + 4, y);
           y += 4;
           addWrappedText(turn.transliterated, 9, 'italic', [120, 130, 145], 4, detectFontFamily(turn.transliterated));
         }
@@ -880,7 +880,7 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
         pdf.setTextColor(180, 190, 205);
         pdf.setFontSize(6.5);
         pdf.setFont('Latin', 'bold');
-        pdf.text('TRANSLATION', margin + 4, y);
+        pdf.text('ENGLISH TRANSLATION', margin + 4, y);
         y += 4;
         addWrappedText(turn.translated, 10, 'italic', [51, 65, 85], 4, detectFontFamily(turn.translated));
         y += 8;
