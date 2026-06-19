@@ -9,7 +9,6 @@ from dotenv import load_dotenv
 
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
-load_dotenv(Path(__file__).resolve().parents[2] / ".env.local")
 
 
 def _env_bool(name: str, default: str) -> bool:
@@ -58,10 +57,6 @@ class Settings:
     gemini_api_key: str
     gemini_model: str
     gemini_base_url: str
-    azure_openai_endpoint: str
-    azure_openai_api_version: str
-    azure_openai_chat_deployment: str
-    azure_openai_api_key: str
 
 
 @lru_cache(maxsize=1)
@@ -135,8 +130,4 @@ def get_settings() -> Settings:
         gemini_api_key=os.getenv("GEMINI_API_KEY", ""),
         gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
         gemini_base_url=os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta").rstrip("/"),
-        azure_openai_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT", "").rstrip("/"),
-        azure_openai_api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview"),
-        azure_openai_chat_deployment=os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT", ""),
-        azure_openai_api_key=os.getenv("AZURE_OPENAI_API_KEY", ""),
     )

@@ -163,51 +163,6 @@ class GeminiArtifactService:
     def __init__(self, settings: Settings):
         self.settings = settings
 
-    def _has_azure_fallback(self) -> bool:
-        return bool(
-            self.settings.azure_openai_endpoint
-            and self.settings.azure_openai_api_key
-            and self.settings.azure_openai_chat_deployment
-        )
-
-    async def _request_json_via_azure(self, prompt: str, *, timeout: float = 180.0) -> dict[str, Any] | None:
-        if not self._has_azure_fallback():
-            return None
-
-        url = (
-            f"{self.settings.azure_openai_endpoint}/openai/deployments/"
-            f"{self.settings.azure_openai_chat_deployment}/chat/completions"
-            f"?api-version={self.settings.azure_openai_api_version}"
-        )
-
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(
-                url,
-                headers={
-                    "Content-Type": "application/json",
-                    "api-key": self.settings.azure_openai_api_key,
-                },
-                json={
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": prompt,
-                        }
-                    ],
-                    "temperature": 0.2,
-                    "response_format": {"type": "json_object"},
-                },
-            )
-            response.raise_for_status()
-            payload = response.json()
-
-        choices = payload.get("choices") or []
-        if not choices:
-            return None
-
-        content = choices[0].get("message", {}).get("content", "")
-        return _extract_json_object(content)
-
     async def _request_json(self, prompt: str, *, timeout: float = 180.0) -> dict[str, Any] | None:
         url = (
             f"{self.settings.gemini_base_url}/models/{self.settings.gemini_model}:generateContent"
@@ -244,8 +199,6 @@ class GeminiArtifactService:
                 await asyncio.sleep(2 ** attempt)
         else:
             if last_error:
-                if self._has_azure_fallback():
-                    return await self._request_json_via_azure(prompt, timeout=timeout)
                 raise last_error
             return None
 
@@ -256,10 +209,7 @@ class GeminiArtifactService:
             if parts:
                 raw_text = parts[0].get("text", "")
 
-        parsed = _extract_json_object(raw_text)
-        if parsed is None and self._has_azure_fallback():
-            return await self._request_json_via_azure(prompt, timeout=timeout)
-        return parsed
+        return _extract_json_object(raw_text)
 
     async def _repair_turn_translations(self, turns: list[TranscriptTurn]) -> list[TranscriptTurn]:
         if not self.settings.gemini_api_key or not any(_needs_turn_translation(turn) for turn in turns):
@@ -385,17 +335,58 @@ class GeminiArtifactService:
 
     async def build_transcript_ready_result(self, merged: MergedTranscript, *, include_summary: bool = False) -> FinalResult:
         result = self.build_default_result(merged)
+        if not self.settings.gemini_api_key or not merged.transcript.strip():
+            result.summary = result.summary or _fallback_interview_summary(result.turns)
+            if not result.executiveSynthesis and result.summary:
+                result.executiveSynthesis = [ChunkSummary(chunk_id=1, text=result.summary)]
+            return result
+
+        if include_summary:
+            combined_prompt = (
+                "You are an expert translation, transliteration, and interview summarization engine. "
+                "Return only JSON with these top-level keys: turns, summary, executiveSynthesis, keyPoints. "
+                "For every turn, preserve speaker, mu_id, timestamp, start_time_seconds, end_time_seconds, duration_seconds, confidence, language, and languages. "
+                "Keep original exactly as given. Set transliterated to Latin script when the original is not already in Latin script. "
+                "Set translated to fluent English. If the original turn is not English, translated must not repeat the source-language text. "
+                "summary must be a concise English summary of the interview. executiveSynthesis must be 1 to 3 short English summary paragraphs.\n\n"
+                f"INPUT_JSON:\n{json.dumps({'transcript': merged.transcript, 'language': merged.language, 'languages': merged.languages, 'turns': [turn.model_dump() for turn in result.turns]}, ensure_ascii=False)}"
+            )
+            try:
+                parsed = await self._request_json(combined_prompt, timeout=120.0)
+                if parsed:
+                    normalized_payload = _normalize_model_payload(parsed)
+                    result = FinalResult.model_validate(
+                        {
+                            **result.model_dump(),
+                            **normalized_payload,
+                            'chunk_results': [chunk.model_dump() for chunk in merged.chunk_results],
+                            'detected_language': merged.detected_language or merged.language,
+                            'languages': merged.languages,
+                            'language_metadata': merged.language_metadata,
+                        }
+                    )
+            except Exception:
+                pass
+        else:
+            try:
+                result.turns = await self._repair_turn_translations(result.turns)
+            except Exception:
+                pass
+
         try:
             result.turns = await self._repair_turn_translations(result.turns)
         except Exception:
             pass
+
         if include_summary:
             try:
-                result = await self._generate_interview_summary(result, merged)
+                if not result.summary or not result.executiveSynthesis:
+                    result = await self._generate_interview_summary(result, merged)
             except Exception:
                 pass
         else:
             result.summary = result.summary or _fallback_interview_summary(result.turns)
+
         if not result.executiveSynthesis and result.summary:
             result.executiveSynthesis = [ChunkSummary(chunk_id=1, text=result.summary)]
         return result
