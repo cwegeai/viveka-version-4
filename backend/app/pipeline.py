@@ -155,12 +155,14 @@ class PipelineRunner:
                             pass
 
         yield_queue: asyncio.Queue[str] = asyncio.Queue()
-        tasks = [asyncio.create_task(process_chunk(manifest)) for manifest in chunk_manifests]
 
-        producer_task: asyncio.Task[None] | None = None
-        if chunk_plan is not None:
-            async def produce_chunks() -> None:
-                for chunk_id, start_time, end_time in chunk_plan:
+        if chunk_plan is None:
+            tasks = [asyncio.create_task(process_chunk(manifest)) for manifest in chunk_manifests]
+        else:
+            creation_semaphore = asyncio.Semaphore(4)
+
+            async def create_and_process_chunk(chunk_id: int, start_time: float, end_time: float) -> None:
+                async with creation_semaphore:
                     manifest = await asyncio.to_thread(
                         create_chunk,
                         source_path,
@@ -170,11 +172,14 @@ class PipelineRunner:
                         start_time,
                         end_time,
                     )
-                    tasks.append(asyncio.create_task(process_chunk(manifest)))
+                await process_chunk(manifest)
 
-            producer_task = asyncio.create_task(produce_chunks())
+            tasks = [
+                asyncio.create_task(create_and_process_chunk(cid, st, et))
+                for cid, st, et in chunk_plan
+            ]
 
-        while tasks or (producer_task is not None and not producer_task.done()):
+        while tasks:
             try:
                 event_payload = await asyncio.wait_for(yield_queue.get(), timeout=0.25)
                 yield event_payload
@@ -183,9 +188,6 @@ class PipelineRunner:
                 pass
 
             tasks = [task for task in tasks if not task.done()]
-
-            if producer_task is not None and producer_task.done() and producer_task.exception() is not None:
-                raise producer_task.exception()
 
             if tasks and time.monotonic() - last_progress_heartbeat >= 5:
                 active_chunks = len(tasks)
@@ -200,9 +202,6 @@ class PipelineRunner:
 
         while not yield_queue.empty():
             yield await yield_queue.get()
-
-        if producer_task is not None:
-            await producer_task
 
         final_chunks = [chunk for chunk in processed_chunks if chunk is not None]
 
