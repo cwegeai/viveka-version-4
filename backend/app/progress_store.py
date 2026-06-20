@@ -62,5 +62,8 @@ _progress_store: MemoryProgressStore | RedisProgressStore | None = None
 def get_progress_store(settings: Settings) -> MemoryProgressStore | RedisProgressStore:
     global _progress_store
     if _progress_store is None:
-        _progress_store = RedisProgressStore(settings) if settings.redis_url else MemoryProgressStore()
+        if settings.redis_url and settings.background_jobs_enabled:
+            _progress_store = RedisProgressStore(settings)
+        else:
+            _progress_store = MemoryProgressStore()
     return _progress_store

@@ -113,7 +113,7 @@ def get_settings() -> Settings:
         normalized_sample_rate=16000,
         normalized_channels=1,
         chunk_minutes=int(os.getenv("VIVEKA_CHUNK_MINUTES", "10")),
-        overlap_seconds=int(os.getenv("VIVEKA_OVERLAP_SECONDS", "60")),
+        overlap_seconds=int(os.getenv("VIVEKA_OVERLAP_SECONDS", "15")),
         small_file_limit_bytes=100 * 1024 * 1024,
         medium_file_limit_bytes=500 * 1024 * 1024,
         small_worker_count=int(os.getenv("VIVEKA_SMALL_WORKER_COUNT", "4")),

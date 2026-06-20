@@ -123,6 +123,8 @@ def create_chunk(
         "-vn",
         "-c:a",
         "flac",
+        "-compression_level",
+        "0",
         str(output_file),
     ]
     subprocess.run(command, capture_output=True, text=True, check=True)

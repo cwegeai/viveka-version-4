@@ -11,6 +11,19 @@ from .config import Settings
 from .models import ChunkTranscript, SpeakerSegment, TranscriptWord
 
 
+_shared_http_client: httpx.AsyncClient | None = None
+
+
+def _get_shared_http_client(timeout: int) -> httpx.AsyncClient:
+    global _shared_http_client
+    if _shared_http_client is None or _shared_http_client.is_closed:
+        _shared_http_client = httpx.AsyncClient(
+            timeout=timeout,
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+        )
+    return _shared_http_client
+
+
 def _coerce_language(value: Any) -> str | None:
     if isinstance(value, str):
         normalized = value.strip()
@@ -64,7 +77,7 @@ class DeepgramTranscriptionService:
         last_error: Exception | None = None
         for attempt in range(self.settings.transcription_retry_count + 1):
             try:
-                payload = await asyncio.to_thread(self._transcribe_sync, file_path)
+                payload = await self._transcribe_async(file_path)
                 return self._parse_payload(chunk_id, start_time, end_time, payload)
             except Exception as exc:
                 last_error = exc
@@ -91,7 +104,7 @@ class DeepgramTranscriptionService:
             error=str(last_error) if last_error else "Unknown transcription error",
         )
 
-    def _transcribe_sync(self, file_path: Path) -> Any:
+    async def _transcribe_async(self, file_path: Path) -> Any:
         if not self.settings.deepgram_api_key:
             raise RuntimeError("DEEPGRAM_API_KEY is not configured.")
 
@@ -109,9 +122,9 @@ class DeepgramTranscriptionService:
             "Content-Type": mimetypes.guess_type(file_path.name)[0] or "application/octet-stream",
         }
 
-        with file_path.open("rb") as file_handle:
-            with httpx.Client(timeout=self.settings.chunk_request_timeout_seconds) as client:
-                response = client.post(url, params=params, headers=headers, content=file_handle.read())
+        file_data = await asyncio.to_thread(file_path.read_bytes)
+        client = _get_shared_http_client(self.settings.chunk_request_timeout_seconds)
+        response = await client.post(url, params=params, headers=headers, content=file_data)
         response.raise_for_status()
         return response.json()
 
