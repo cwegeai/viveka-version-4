@@ -37,8 +37,8 @@ services:
       - key: SMTP_PORT
         value: "587"
       - key: SMTP_SENDER_EMAIL
-        sync: false
+        value: hk6113367@gmail.com
       - key: SMTP_SENDER_PASSWORD
-        sync: false
+        value: jebanziquncurrgp
       - key: SMTP_USE_TLS
         value: "true"

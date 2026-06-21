@@ -259,12 +259,21 @@ const Dashboard: React.FC = () => {
       />
     </div>
 
-    <div className="flex items-center justify-center gap-3 mb-4">
-      <span className="w-2 h-2 bg-violet-500 rounded-full animate-pulse"></span>
-      <p className="text-slate-500 text-sm font-bold font-mono">
-        {String(Math.floor(elapsedSeconds / 60)).padStart(2, '0')}:{String(elapsedSeconds % 60).padStart(2, '0')} elapsed
-      </p>
-    </div>
+    {(() => {
+      const etaSec = progress > 5 && progress < 99 ? Math.round(elapsedSeconds * (100 - progress) / progress) : null;
+      const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2,'0')}:${String(s % 60).padStart(2,'0')}`;
+      return (
+        <div className="flex flex-col items-center gap-1 mb-4">
+          <div className="flex items-center justify-center gap-3">
+            <span className="w-2 h-2 bg-violet-500 rounded-full animate-pulse"></span>
+            <p className="text-slate-500 text-sm font-bold font-mono">{fmt(elapsedSeconds)} elapsed</p>
+          </div>
+          {etaSec !== null && (
+            <p className="text-violet-500 text-xs font-bold font-mono">~{fmt(etaSec)} remaining</p>
+          )}
+        </div>
+      );
+    })()}
 
     <p className="text-slate-400 text-xs md:text-sm italic font-semibold">
       Processing verbatim data...

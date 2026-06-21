@@ -452,13 +452,15 @@ class GeminiArtifactService:
                 result.executiveSynthesis = [ChunkSummary(chunk_id=1, text=result.summary)]
             return result
 
+        summary_turns = result.turns[:60]
+        truncated_transcript = merged.transcript[:4000]
         summary_prompt = (
             "You are an expert qualitative interview summarizer. "
             "Return only JSON with these top-level keys: summary, executiveSynthesis, keyPoints. "
             "summary must be a concise interview summary in English. "
             "executiveSynthesis must be an array with 1 to 3 short English paragraphs summarizing the interview. "
             "Do not repeat raw transcript lines unless necessary.\n\n"
-            f"INPUT_JSON:\n{json.dumps({'transcript': merged.transcript, 'languages': merged.languages, 'turns': [turn.model_dump() for turn in result.turns]}, ensure_ascii=False)}"
+            f"INPUT_JSON:\n{json.dumps({'transcript': truncated_transcript, 'languages': merged.languages, 'turns': [turn.model_dump() for turn in summary_turns]}, ensure_ascii=False)}"
         )
 
         try:
@@ -496,6 +498,18 @@ class GeminiArtifactService:
             result.summary = result.summary or _fallback_interview_summary(result.turns)
             if not result.executiveSynthesis and result.summary:
                 result.executiveSynthesis = [ChunkSummary(chunk_id=1, text=result.summary)]
+            # Apply fast GoogleTranslator so the 80% partial result shows English, not the original script
+            fast_turns: list[TranscriptTurn] = []
+            for turn in result.turns:
+                if _looks_untranslated(turn.original, turn.translated) and _contains_non_ascii_letters(turn.original):
+                    try:
+                        fallback = await self._fallback_translate_text(turn.original)
+                        fast_turns.append(turn.model_copy(update={"translated": fallback}))
+                    except Exception:
+                        fast_turns.append(turn)
+                else:
+                    fast_turns.append(turn)
+            result.turns = fast_turns
             return result
 
         if include_summary:
@@ -553,11 +567,13 @@ class GeminiArtifactService:
         if not self.settings.gemini_api_key or not merged.transcript.strip():
             return result
 
+        artifact_turns = result.turns[:50]
+        artifact_transcript = merged.transcript[:4000]
         artifact_prompt = (
             "You are an expert qualitative research analysis engine using the AWESOME framework. "
             "Return only JSON with these top-level keys: keyPoints, artifact1_evidence, artifact2_context, artifact3_chains, artifact5_hotspots, strategies. "
             "Use concise English throughout. If there is insufficient evidence for a section, return an empty array for that section.\n\n"
-            f"INPUT_JSON:\n{json.dumps({'summary': result.summary, 'executiveSynthesis': [item.model_dump() for item in result.executiveSynthesis], 'turns': [turn.model_dump() for turn in result.turns], 'transcript': merged.transcript}, ensure_ascii=False)}"
+            f"INPUT_JSON:\n{json.dumps({'summary': result.summary, 'executiveSynthesis': [item.model_dump() for item in result.executiveSynthesis], 'turns': [turn.model_dump() for turn in artifact_turns], 'transcript': artifact_transcript}, ensure_ascii=False)}"
         )
 
         try:

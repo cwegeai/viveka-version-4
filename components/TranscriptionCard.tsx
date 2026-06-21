@@ -627,7 +627,7 @@ const ArtifactsView: React.FC<{ result: TranscriptionResult }> = ({ result }) =>
       </section>
 
       <section className="space-y-6">
-         <h3 className="text-3xl font-black text-slate-900 border-b-8 border-slate-900 pb-3 uppercase tracking-tighter">Artifact 5: Vulnerability Hotspots</h3>
+         <h3 className="text-3xl font-black text-slate-900 border-b-8 border-slate-900 pb-3 uppercase tracking-tighter">Artifact 4: Vulnerability Hotspots</h3>
          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
            {result.artifact5_hotspots?.map((item, i) => (
              <div key={i} className="bg-rose-50 border-2 border-rose-100 p-10 rounded-[3rem] relative overflow-hidden">
