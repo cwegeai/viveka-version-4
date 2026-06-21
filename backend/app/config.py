@@ -57,6 +57,11 @@ class Settings:
     gemini_api_key: str
     gemini_model: str
     gemini_base_url: str
+    smtp_host: str
+    smtp_port: int
+    smtp_sender_email: str
+    smtp_sender_password: str
+    smtp_use_tls: bool
 
 
 @lru_cache(maxsize=1)
@@ -130,4 +135,9 @@ def get_settings() -> Settings:
         gemini_api_key=os.getenv("GEMINI_API_KEY", ""),
         gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
         gemini_base_url=os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta").rstrip("/"),
+        smtp_host=os.getenv("SMTP_HOST", "smtp.gmail.com"),
+        smtp_port=int(os.getenv("SMTP_PORT", "587")),
+        smtp_sender_email=os.getenv("SMTP_SENDER_EMAIL", ""),
+        smtp_sender_password=os.getenv("SMTP_SENDER_PASSWORD", ""),
+        smtp_use_tls=_env_bool("SMTP_USE_TLS", "true"),
     )

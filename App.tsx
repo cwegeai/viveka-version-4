@@ -1,6 +1,6 @@
 
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { TranscriptionResult } from './types';
 import { FileUpload } from './components/FileUpload';
@@ -32,9 +32,21 @@ const Dashboard: React.FC = () => {
   const [status, setStatus] = useState('');
   const [progress, setProgress] = useState(0);
   const [fileDuration, setFileDuration] = useState<string>('');
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [activeTab, setActiveTab] = useState<'upload' | 'record'>('upload');
   const sessionRef = useRef(0);
   const activeRequestRef = useRef<AbortController | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (isProcessing) {
+      setElapsedSeconds(0);
+      timerRef.current = setInterval(() => setElapsedSeconds(s => s + 1), 1000);
+    } else {
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    }
+    return () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
+  }, [isProcessing]);
   const restartSession = () => {sessionRef.current += 1;
 
   activeRequestRef.current?.abort();
@@ -48,6 +60,7 @@ const Dashboard: React.FC = () => {
   setProgress(0);
   setStatus('');
   setFileDuration('');
+  setElapsedSeconds(0);
   setActiveTab('upload');
 };
   const navigate = useNavigate();
@@ -244,6 +257,13 @@ const Dashboard: React.FC = () => {
         className="h-full bg-violet-600 rounded-full transition-all duration-300"
         style={{ width: `${progress}%` }}
       />
+    </div>
+
+    <div className="flex items-center justify-center gap-3 mb-4">
+      <span className="w-2 h-2 bg-violet-500 rounded-full animate-pulse"></span>
+      <p className="text-slate-500 text-sm font-bold font-mono">
+        {String(Math.floor(elapsedSeconds / 60)).padStart(2, '0')}:{String(elapsedSeconds % 60).padStart(2, '0')} elapsed
+      </p>
     </div>
 
     <p className="text-slate-400 text-xs md:text-sm italic font-semibold">

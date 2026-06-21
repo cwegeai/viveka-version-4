@@ -219,22 +219,6 @@ class PipelineRunner:
             },
         )
 
-        if duration_seconds > self.settings.gemini_auto_max_seconds:
-            message = (
-                f"Transcript complete. Skipped Gemini enrichment for {duration_seconds / 60:.1f}-minute audio to prioritize speed."
-            )
-            yield progress_event(PipelineStage.complete, message, progress=100)
-            yield sse_event(
-                PipelineStage.complete.value,
-                {
-                    "stage": PipelineStage.complete.value,
-                    "message": message,
-                    "progress": 100,
-                    "result": transcript_ready_result.model_dump(),
-                },
-            )
-            return
-
         yield progress_event(PipelineStage.artifact_generation, "Generating Gemini artifacts...", progress=88)
         final_result = await self.gemini.generate(merged)
 

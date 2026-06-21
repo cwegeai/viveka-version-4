@@ -470,6 +470,8 @@ import React, { useState } from 'react';
 import { TranscriptionResult } from '../types';
 import { jsPDF } from 'jspdf';
 import { uploadToMinio } from '../services/minio.service';
+import { getAccessToken, getStoredUser } from '../services/authStorage';
+import { TRANSCRIPTION_API_URL } from '../services/config';
 
 interface Props {
   result: TranscriptionResult;
@@ -738,6 +740,102 @@ const normalizeSpeakerLabel = (speaker: string) => {
 export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalFileName, onRestart }) => {
   const [activeTab, setActiveTab] = useState<'transcript' | 'artifacts'>('transcript');
   const [isExporting, setIsExporting] = useState(false);
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [emailStatus, setEmailStatus] = useState<string | null>(null);
+
+  const sendByEmail = async () => {
+    const user = getStoredUser();
+    const recipientEmail = user?.email;
+    if (!recipientEmail) {
+      alert('No email address found for your account.');
+      return;
+    }
+    setIsSendingEmail(true);
+    setEmailStatus(null);
+    try {
+      const folderPath = '/fonts/';
+      const fileCache = new Map<string, string>();
+      const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+      const neededFonts = new Set<string>(['Latin']);
+      result.turns.forEach((turn) => {
+        neededFonts.add(detectFontFamily(turn.original));
+        neededFonts.add(detectFontFamily(turn.translated));
+      });
+      await Promise.all(
+        FONT_LIST.filter((f) => neededFonts.has(f.name)).map(async (font) => {
+          let base64: string;
+          if (fileCache.has(font.file)) { base64 = fileCache.get(font.file)!; }
+          else {
+            const res = await fetch(`${folderPath}${font.file}`);
+            if (!res.ok) return;
+            base64 = arrayBufferToBase64(await res.arrayBuffer());
+            fileCache.set(font.file, base64);
+          }
+          pdf.addFileToVFS(font.file, base64);
+          PDF_FONT_STYLES.forEach((style) => pdf.addFont(font.file, font.name, style));
+        })
+      );
+      const executiveText = buildExecutiveSynthesisText(result);
+      const margin = 18, pageWidth = pdf.internal.pageSize.getWidth();
+      const contentWidth = pageWidth - margin * 2;
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      let y = 18;
+      const checkPageBreak = (n: number) => { if (y + n > pageHeight - 20) { pdf.addPage(); y = 20; } };
+      const addText = (text: string, fs: number, style = 'normal', color: [number,number,number] = [0,0,0], indent = 0, font = 'Latin') => {
+        pdf.setFontSize(fs); pdf.setFont(font, resolvePdfFontStyle(font, style)); pdf.setTextColor(...color);
+        const lines: string[] = pdf.splitTextToSize(text || '', contentWidth - indent);
+        const lh = fs * 0.5;
+        lines.forEach(line => { checkPageBreak(lh); pdf.text(line, margin + indent, y); y += lh; });
+        y += 2;
+      };
+      pdf.setFont('Latin','bold'); pdf.setFontSize(20); pdf.setTextColor(15,23,42);
+      pdf.text('Viveka Analysis Dossier', margin, y);
+      pdf.setTextColor(124,58,237); pdf.setFontSize(7.5);
+      pdf.text('AWESOME FRAMEWORK  •  ' + new Date().toLocaleDateString(), margin, y+5);
+      y += 13;
+      pdf.setTextColor(100,116,139); pdf.setFontSize(8); pdf.setFont('Latin','normal');
+      pdf.text(`Source: ${originalFileName || 'Session_Archive'}`, margin, y); y += 10;
+      addText('SUMMARY OF INTERVIEW', 13, 'bold', [15,23,42]);
+      addText(executiveText, 10, 'italic', [51,65,85], 8, detectFontFamily(executiveText));
+      y += 6;
+      addText('FULL VERBATIM RECORD', 12, 'bold', [15,23,42]);
+      result.turns?.forEach((turn) => {
+        checkPageBreak(30);
+        pdf.setFillColor(248,250,252); pdf.rect(margin, y, contentWidth, 9, 'F');
+        pdf.setTextColor(124,58,237); pdf.setFontSize(8); pdf.setFont('Latin','bold');
+        pdf.text(normalizeSpeakerLabel(turn.speaker).toUpperCase(), margin+4, y+5.8);
+        pdf.setTextColor(100,116,139); pdf.setFont('Latin','normal'); pdf.setFontSize(7);
+        pdf.text(`Start ${turn.timestamp}`, pageWidth - margin - 24, y+5.8);
+        y += 13;
+        addText(turn.original, 12, 'bold', [15,23,42], 4, detectFontFamily(turn.original));
+        if (turn.transliterated) addText(turn.transliterated, 9, 'italic', [120,130,145], 4, detectFontFamily(turn.transliterated));
+        addText(turn.translated, 10, 'italic', [51,65,85], 4, detectFontFamily(turn.translated));
+        y += 4;
+      });
+      const fileName = `Viveka_Dossier_${Date.now()}.pdf`;
+      const blob = pdf.output('blob');
+      const formData = new FormData();
+      formData.append('recipient_email', recipientEmail);
+      formData.append('filename', fileName);
+      formData.append('original_filename', originalFileName || '');
+      formData.append('pdf', new File([blob], fileName, { type: 'application/pdf' }));
+      const apiBase = TRANSCRIPTION_API_URL?.replace('/api/transcribe', '') || '';
+      const res = await fetch(`${apiBase}/api/send-pdf`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${getAccessToken() || ''}` },
+        body: formData,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
+        throw new Error(err.detail || `HTTP ${res.status}`);
+      }
+      setEmailStatus(`Dossier sent to ${recipientEmail}`);
+    } catch (err: any) {
+      setEmailStatus(`Failed: ${err.message}`);
+    } finally {
+      setIsSendingEmail(false);
+    }
+  };
 
 
   const generatePDF = async () => {
@@ -1073,8 +1171,30 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
              )}
              <span className="text-[10px] font-black uppercase tracking-widest pr-2">Export Dossier</span>
           </button>
+          <button
+            onClick={sendByEmail}
+            disabled={isSendingEmail}
+            title="Email dossier to your registered email"
+            className={`p-4 rounded-2xl transition-all shadow-xl active:scale-95 flex items-center gap-2
+              ${isSendingEmail ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-violet-600 text-white hover:bg-violet-700 shadow-violet-600/20'}
+            `}
+          >
+            {isSendingEmail ? (
+              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+            ) : (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+            )}
+            <span className="text-[10px] font-black uppercase tracking-widest pr-2">Email Dossier</span>
+          </button>
         </div>
       </div>
+      {emailStatus && (
+        <div className={`px-6 py-3 rounded-2xl text-sm font-bold text-center ${emailStatus.startsWith('Failed') ? 'bg-rose-50 text-rose-600 border border-rose-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
+          {emailStatus}
+        </div>
+      )}
 
       <div className="bg-white rounded-[4.5rem] shadow-2xl shadow-slate-200/50 border border-slate-100 p-12 md:p-24 overflow-hidden relative min-h-[600px]">
         {audioUrl && (

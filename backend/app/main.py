@@ -23,6 +23,7 @@ from .config import get_settings
 from .events import progress_event
 from .models import PipelineStage
 from .pipeline import PipelineRunner
+from .email_service import send_pdf_email
 from .progress_store import get_progress_store
 from .redis_queue import enqueue_job
 
@@ -310,6 +311,34 @@ async def auth_me(authorization: str | None = Header(default=None)):
         "affiliation": user.affiliation,
         "nationality_name": user.nationality_name,
     }
+
+
+@app.post("/api/send-pdf")
+async def api_send_pdf(
+    recipient_email: str = Form(...),
+    filename: str = Form(...),
+    original_filename: str = Form(default=""),
+    pdf: UploadFile = File(...),
+    authorization: str | None = Header(default=None),
+):
+    await _get_current_user(authorization)
+    pdf_bytes = await pdf.read()
+    if not pdf_bytes:
+        raise HTTPException(status_code=400, detail="PDF file is empty.")
+    try:
+        await asyncio.to_thread(
+            send_pdf_email,
+            settings,
+            recipient_email,
+            pdf_bytes,
+            filename,
+            original_filename,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to send email: {exc}") from exc
+    return {"message": f"Dossier sent to {recipient_email}."}
 
 
 @app.post("/api/uploads/init")
