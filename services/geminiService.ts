@@ -155,7 +155,48 @@ const synthesizeArtifactsFromTranscript = async (
     try {
       const artifactResponse = await ai.models.generateContent({
         model: modelName,
-        contents: `${commonSystemInstruction}\nTRANSCRIPT:\n${transcriptContext}\n\nTASK: Generate Evidence Matrix (A1), Context Matrix (A2), Mechanism Chains (A3), Vulnerability Hotspots (A5), and Executive Synthesis from this transcript.`,
+        contents: `${commonSystemInstruction}\nTRANSCRIPT:\n${transcriptContext}\n\nTASK:
+
+Generate the following artifacts from the transcript.
+
+ARTIFACT 1: EVIDENCE MATRIX
+- Extract ONLY direct quotes from the transcript.
+- Each evidence item MUST include reasoning.
+- Reasoning must be 1–2 lines explaining why the quote is important in the interview context.
+- Reasoning is REQUIRED and cannot be empty.
+- If reasoning cannot be generated, DO NOT include that evidence item.
+
+ARTIFACT 2: CONTEXT MATRIX
+- Explain the meaning behind the speaker's statements.
+- Base explanation ONLY on transcript content.
+- Do NOT copy transcript sentences directly.
+- Do NOT summarize the full interview.
+- Each entry must reflect a specific idea from the transcript.
+
+ARTIFACT 3: MECHANISM CHAINS
+- Extract only explicit cause → effect relationships from transcript.
+- Format as logical chains (A → B → C).
+- Do NOT invent relationships not supported by transcript.
+- If no clear cause-effect exists, return empty array [].
+
+ARTIFACT 5: VULNERABILITY HOTSPOTS
+- Identify ONLY:
+  - ambiguity in meaning
+  - missing or unclear details
+  - unsupported claims
+  - contradictions in statements
+- Do NOT include positive statements or general descriptions.
+- ONLY risk, weakness, or uncertainty.
+- If none exist, return empty array [].
+
+CRITICAL RULES:
+- Each artifact must contain UNIQUE information.
+- The same sentence or idea must NOT appear in multiple artifacts.
+- Evidence = Quotes only
+- Context = Interpretation only
+- Mechanism = Cause-effect only
+- Hotspots = Risks / ambiguities only
+- Do NOT generate empty reasoning fields.`,
         config: {
           responseMimeType: "application/json",
           responseSchema: {
@@ -177,9 +218,12 @@ const synthesizeArtifactsFromTranscript = async (
                 items: {
                   type: Type.OBJECT,
                   properties: {
-                    dimension: { type: Type.STRING }, domain: { type: Type.STRING },
-                    evidence: { type: Type.STRING }, reasoning: { type: Type.STRING }
-                  }
+                    dimension: { type: Type.STRING },
+                    domain: { type: Type.STRING },
+                    evidence: { type: Type.STRING },
+                    reasoning: { type: Type.STRING, description: "MANDATORY: explain why this evidence is important in 1–2 lines" }
+                  },
+                  required: ["dimension", "domain", "evidence", "reasoning"]
                 }
               },
               artifact2_context: {
@@ -217,7 +261,7 @@ const synthesizeArtifactsFromTranscript = async (
         }
       });
 
-      const parsedArtifact = extractLargestCompleteJsonObject(artifactResponse.text);
+      const parsedArtifact = artifactResponse as any;
       if (parsedArtifact && Array.isArray(parsedArtifact.executiveSynthesis)) {
         return {
           ...createEmptyArtifactResult(),
@@ -230,7 +274,7 @@ const synthesizeArtifactsFromTranscript = async (
     }
   }
 
-  return createEmptyArtifactResult();
+  throw new Error("Artifact generation failed");
 };
 
 const transcribeWithDeepgram = async (
@@ -428,7 +472,7 @@ export const transcribeAudio = async (
 
     if (!verbatimResult && ai) {
       const fileManager = ai.files;
-      const uploadResult = await fileManager.upload({
+      const uploadResult: any = await fileManager.upload({
         file: audioFile,
         config: { mimeType, displayName: `Viveka_${Date.now()}` },
       });
@@ -477,8 +521,8 @@ export const transcribeAudio = async (
             }
           });
           
-          const parsed  = extractLargestCompleteJsonObject(verbatimResponse.text);
-          if (parsed && parsed.turns && parsed.turns.length > 0) {
+          const parsed = verbatimResponse as any;
+          if (parsed?.turns?.length > 0) {
             verbatimResult = parsed;
             console.log(`%c Success with ${model_name}`, "color: #10b981; font-weight: bold");
             break; // Success, exit loop
