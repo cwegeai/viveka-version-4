@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import tempfile
 import time
 from pathlib import Path
@@ -14,6 +15,8 @@ from .events import progress_event, sse_event
 from .gemini_service import GeminiArtifactService
 from .merge_engine import merge_chunk_results
 from .models import ChunkTranscript, PipelineStage
+
+logger = logging.getLogger(__name__)
 
 
 class PipelineRunner:
@@ -220,7 +223,18 @@ class PipelineRunner:
         )
 
         yield progress_event(PipelineStage.artifact_generation, "Generating Gemini artifacts...", progress=88)
-        final_result = await self.gemini.generate(merged)
+        
+        if not self.settings.gemini_api_key:
+            logger.warning("GEMINI_API_KEY not configured. Skipping artifact generation.")
+        else:
+            logger.info(f"Calling Gemini artifact generation with {len(merged.speakers)} turns, transcript length: {len(merged.transcript)} chars")
+        
+        try:
+            final_result = await self.gemini.generate(merged)
+            logger.info(f"Gemini generation complete. Artifacts: evidence={len(final_result.artifact1_evidence)}, context={len(final_result.artifact2_context)}, chains={len(final_result.artifact3_chains)}, hotspots={len(final_result.artifact5_hotspots)}")
+        except Exception as e:
+            logger.error(f"Gemini generation failed with exception: {e}", exc_info=True)
+            raise
 
         yield progress_event(PipelineStage.complete, "Transcription and analysis complete.", progress=100)
         yield sse_event(

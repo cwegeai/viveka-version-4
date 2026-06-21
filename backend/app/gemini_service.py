@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 from typing import Any
 
 import httpx
 from deep_translator import GoogleTranslator
+
+logger = logging.getLogger(__name__)
 
 from .config import Settings
 from .merge_engine import format_timestamp
@@ -466,6 +469,7 @@ class GeminiArtifactService:
         try:
             parsed = await self._request_json(summary_prompt, timeout=90.0)
             if not parsed:
+                logger.warning("Gemini summary generation returned empty response")
                 raise ValueError("No summary payload returned")
 
             normalized_payload = _normalize_model_payload(parsed)
@@ -479,7 +483,8 @@ class GeminiArtifactService:
             result.executiveSynthesis = [ChunkSummary.model_validate(item) for item in executive]
             result.keyPoints = [str(item).strip() for item in key_points if str(item).strip()]
             return result
-        except Exception:
+        except Exception as e:
+            logger.error(f"Gemini summary generation failed: {e}", exc_info=True)
             if not result.summary:
                 result.summary = fallback_summary
             if not result.executiveSynthesis:
@@ -579,6 +584,7 @@ class GeminiArtifactService:
         try:
             parsed = await self._request_json(artifact_prompt, timeout=120.0)
             if not parsed:
+                logger.warning("Gemini artifact generation returned empty response. Using fallback artifacts.")
                 return result
 
             normalized_payload = _normalize_model_payload(parsed)
@@ -593,7 +599,8 @@ class GeminiArtifactService:
                     'strategies': normalized_payload.get('strategies', result.strategies),
                 }
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Gemini artifact generation failed: {e}", exc_info=True)
             return result
 
     def build_default_result(self, merged: MergedTranscript) -> FinalResult:
