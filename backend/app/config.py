@@ -62,6 +62,7 @@ class Settings:
     smtp_sender_email: str
     smtp_sender_password: str
     smtp_use_tls: bool
+    smtp_timeout_seconds: int
 
 
 @lru_cache(maxsize=1)
@@ -140,4 +141,5 @@ def get_settings() -> Settings:
         smtp_sender_email=os.getenv("SMTP_SENDER_EMAIL", ""),
         smtp_sender_password=os.getenv("SMTP_SENDER_PASSWORD", ""),
         smtp_use_tls=_env_bool("SMTP_USE_TLS", "true"),
+        smtp_timeout_seconds=int(os.getenv("SMTP_TIMEOUT_SECONDS", "180")),
     )
