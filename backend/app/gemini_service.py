@@ -518,6 +518,9 @@ class GeminiArtifactService:
             return result
 
         if include_summary:
+            # Truncate to prevent Gemini timeout on large files
+            combined_turns = result.turns[:60]
+            combined_transcript = merged.transcript[:4000]
             combined_prompt = (
                 "You are an expert translation, transliteration, and interview summarization engine. "
                 "Return only JSON with these top-level keys: turns, summary, executiveSynthesis, keyPoints. "
@@ -525,7 +528,7 @@ class GeminiArtifactService:
                 "Keep original exactly as given. Set transliterated to Latin script when the original is not already in Latin script. "
                 "Set translated to fluent English. If the original turn is not English, translated must not repeat the source-language text. "
                 "summary must be a concise English summary of the interview. executiveSynthesis must be 1 to 3 short English summary paragraphs.\n\n"
-                f"INPUT_JSON:\n{json.dumps({'transcript': merged.transcript, 'language': merged.language, 'languages': merged.languages, 'turns': [turn.model_dump() for turn in result.turns]}, ensure_ascii=False)}"
+                f"INPUT_JSON:\n{json.dumps({'transcript': combined_transcript, 'language': merged.language, 'languages': merged.languages, 'turns': [turn.model_dump() for turn in combined_turns]}, ensure_ascii=False)}"
             )
             try:
                 parsed = await self._request_json(combined_prompt, timeout=120.0)
@@ -541,12 +544,14 @@ class GeminiArtifactService:
                             'language_metadata': merged.language_metadata,
                         }
                     )
-            except Exception:
-                pass
+                else:
+                    logger.warning("Combined prompt returned empty response, will retry with separate summary call")
+            except Exception as e:
+                logger.error(f"Combined prompt failed: {e}", exc_info=True)
         try:
             result.turns = await self._repair_turn_translations(result.turns)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Turn translation repair failed: {e}", exc_info=True)
 
         normalized_turns: list[TranscriptTurn] = []
         for turn in result.turns:
@@ -560,8 +565,8 @@ class GeminiArtifactService:
         try:
             if not result.summary or not result.executiveSynthesis:
                 result = await self._generate_interview_summary(result, merged)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Interview summary generation failed: {e}", exc_info=True)
 
         if not result.executiveSynthesis and result.summary:
             result.executiveSynthesis = [ChunkSummary(chunk_id=1, text=result.summary)]
