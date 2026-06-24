@@ -1,5 +1,3 @@
-
-
 import React, { useState, useRef, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { TranscriptionResult } from './types';
@@ -248,6 +246,17 @@ const Dashboard: React.FC = () => {
                 {isProcessing ? (
   <div className="w-full max-w-lg text-center p-6 md:p-12 animate-fade-in">
     
+    {originalFile && (
+      <div className="flex items-center justify-center gap-2 mb-5">
+        <svg className="w-4 h-4 text-violet-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z" />
+        </svg>
+        <span className="text-xs font-black uppercase tracking-widest text-violet-500 truncate max-w-[280px]" title={originalFile.name}>
+          {originalFile.name}
+        </span>
+      </div>
+    )}
+
     <h2 className="text-xl md:text-3xl font-black uppercase text-[#1e293b] mb-6 md:mb-8 tracking-tighter">
       {status}
     </h2>

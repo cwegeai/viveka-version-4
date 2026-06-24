@@ -788,13 +788,39 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
         lines.forEach(line => { checkPageBreak(lh); pdf.text(line, margin + indent, y); y += lh; });
         y += 2;
       };
-      pdf.setFont('Latin','bold'); pdf.setFontSize(20); pdf.setTextColor(15,23,42);
-      pdf.text('Viveka Analysis Dossier', margin, y);
-      pdf.setTextColor(124,58,237); pdf.setFontSize(7.5);
-      pdf.text('AWESOME FRAMEWORK  •  ' + new Date().toLocaleDateString(), margin, y+5);
-      y += 13;
-      pdf.setTextColor(100,116,139); pdf.setFontSize(8); pdf.setFont('Latin','normal');
-      pdf.text(`Source: ${originalFileName || 'Session_Archive'}`, margin, y); y += 10;
+      pdf.setFont('Latin','bold'); pdf.setFontSize(22); pdf.setTextColor(15,23,42);
+      pdf.text('Viveka AI', margin, y);
+      y += 8;
+      pdf.setFont('Latin','normal'); pdf.setFontSize(9); pdf.setTextColor(100,116,139);
+      pdf.text('QUALITATIVE VERBATIM SPECIALIST', margin, y);
+      y += 5;
+      pdf.setFont('Latin','bold'); pdf.setFontSize(12); pdf.setTextColor(15,23,42);
+      pdf.text('Research Dossier', margin, y);
+      pdf.setTextColor(124,58,237);
+      pdf.text(' AWESOME Framework', margin + pdf.getTextWidth('Research Dossier'), y);
+      y += 10;
+      pdf.setFillColor(15,23,42);
+      const bl = 'VIVEKA AI  ·  HIGH-FIDELITY QUALITATIVE RESEARCH';
+      pdf.setFontSize(6.5);
+      const blW = pdf.getTextWidth(bl) + 8;
+      pdf.roundedRect(margin, y, blW, 5.5, 1.5, 1.5, 'F');
+      pdf.setTextColor(255,255,255); pdf.setFont('Latin','bold');
+      pdf.text(bl, margin+4, y+3.8);
+      y += 11;
+      pdf.setDrawColor(226,232,240); pdf.setLineWidth(0.3);
+      pdf.line(margin, y, margin+contentWidth, y); y += 6;
+      // Metadata card
+      pdf.setFillColor(248,250,252); pdf.setDrawColor(226,232,240); pdf.setLineWidth(0.3);
+      pdf.roundedRect(margin, y, contentWidth, 20, 3, 3, 'FD');
+      pdf.setFont('Latin','bold'); pdf.setFontSize(7); pdf.setTextColor(148,163,184);
+      pdf.text('DOCUMENT', margin+5, y+8);
+      pdf.setFont('Latin','normal'); pdf.setFontSize(8.5); pdf.setTextColor(15,23,42);
+      pdf.text(originalFileName || 'Session_Archive', margin+30, y+8);
+      pdf.setFont('Latin','bold'); pdf.setFontSize(7); pdf.setTextColor(148,163,184);
+      pdf.text('GENERATED', margin+5, y+17);
+      pdf.setFont('Latin','normal'); pdf.setFontSize(8.5); pdf.setTextColor(15,23,42);
+      pdf.text(new Date().toLocaleString('en-GB', {day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'}), margin+30, y+17);
+      y += 26;
       addText('SUMMARY OF INTERVIEW', 13, 'bold', [15,23,42]);
       addText(executiveText, 10, 'italic', [51,65,85], 8, detectFontFamily(executiveText));
       y += 6;
@@ -812,7 +838,8 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
         addText(turn.translated, 10, 'italic', [51,65,85], 4, detectFontFamily(turn.translated));
         y += 4;
       });
-      const fileName = `Viveka_Dossier_${Date.now()}.pdf`;
+      const safeBase2 = (originalFileName || 'session').replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 40);
+      const fileName = `Viveka_${safeBase2}_${Date.now()}.pdf`;
       const blob = pdf.output('blob');
       const formData = new FormData();
       formData.append('recipient_email', recipientEmail);
@@ -842,282 +869,674 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
     setIsExporting(true);
 
     const folderPath = "/fonts/";
-    const fileCache = new Map();
+    const fileCache = new Map<string, string>();
 
     try {
+      const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
 
-      const pdf = new jsPDF({
-        orientation: 'p',
-        unit: 'mm',
-        format: 'a4'
-      });
-
+      // ── Font loading ───────────────────────────────────────────────────────
       const neededFonts = new Set<string>(['Latin']);
       result.turns.forEach((turn) => {
         neededFonts.add(detectFontFamily(turn.original));
         neededFonts.add(detectFontFamily(turn.transliterated));
         neededFonts.add(detectFontFamily(turn.translated));
       });
+      await Promise.all(
+        FONT_LIST.filter((font) => neededFonts.has(font.name)).map(async (font) => {
+          let fontBase64: string;
+          if (fileCache.has(font.file)) {
+            fontBase64 = fileCache.get(font.file)!;
+          } else {
+            const response = await fetch(`${folderPath}${font.file}`);
+            if (!response.ok) throw new Error(`Failed to fetch ${font.file}`);
+            fontBase64 = arrayBufferToBase64(await response.arrayBuffer());
+            fileCache.set(font.file, fontBase64);
+          }
+          pdf.addFileToVFS(font.file, fontBase64);
+          PDF_FONT_STYLES.forEach((style) => pdf.addFont(font.file, font.name, style));
+        })
+      );
 
-      const loadPromises = FONT_LIST.filter((font) => neededFonts.has(font.name)).map(async (font) => {
-        let fontBase64;
+      // ── Layout constants ───────────────────────────────────────────────────
+      const MARGIN        = 18;
+      const pageWidth     = pdf.internal.pageSize.getWidth();
+      const pageHeight    = pdf.internal.pageSize.getHeight();
+      const contentWidth  = pageWidth - MARGIN * 2;
+      // Colours from reference PDF
+      const C_NAVY        : [number,number,number] = [15,  23,  42];
+      const C_VIOLET      : [number,number,number] = [124, 58,  237];
+      const C_SLATE       : [number,number,number] = [100, 116, 139];
+      const C_MUTED       : [number,number,number] = [148, 163, 184];
+      const C_BODY        : [number,number,number] = [51,  65,  85];
+      const C_BORDER      : [number,number,number] = [226, 232, 240];
+      const C_BG_LIGHT    : [number,number,number] = [248, 250, 252];
+      const C_WHITE       : [number,number,number] = [255, 255, 255];
+      const C_TAG_TEXT    : [number,number,number] = [71,  85,  105];
 
-        if (fileCache.has(font.file)) {
-          fontBase64 = fileCache.get(font.file);
-        } else {
-          const response = await fetch(`${folderPath}${font.file}`);
-          if (!response.ok) throw new Error(`Failed to fetch ${font.file}`);
-          const buffer = await response.arrayBuffer();
-          fontBase64 = arrayBufferToBase64(buffer);
-          fileCache.set(font.file, fontBase64);
-        }
-        pdf.addFileToVFS(font.file, fontBase64);
-        PDF_FONT_STYLES.forEach((style) => {
-          pdf.addFont(font.file, font.name, style);
-        });
-      });
+      let y = 0;
+      let pageNum = 1;
+      let totalPages = 1; // will be patched via jsPDF internal
 
-    await Promise.all(loadPromises);
+      const FOOTER_Y = pageHeight - 8;
+      const FOOTER_LABEL = `Viveka AI · AWESOME Qualitative Mapping Framework · ammachi labs / CWEGE`;
 
-      const executiveText = buildExecutiveSynthesisText(result);
-      const margin = 18;
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const contentWidth = pageWidth - (margin * 2);
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      let y = 18;
+      // ── Helpers ────────────────────────────────────────────────────────────
+      const lh = (fs: number) => fs * 0.50;   // line-height in mm for a given font-size
 
-      const checkPageBreak = (needed: number) => {
-        if (y + needed > pageHeight - 20) {
-          pdf.addPage();
-          y = 20;
-        }
+      const addPageFooter = () => {
+        pdf.setFont('Latin', 'normal');
+        pdf.setFontSize(6.5);
+        pdf.setTextColor(...C_MUTED);
+        pdf.text(FOOTER_LABEL, MARGIN, FOOTER_Y);
+        pdf.text(`${pageNum} / {TOTAL}`, pageWidth - MARGIN, FOOTER_Y, { align: 'right' });
       };
 
-      const addWrappedText = (
-        text: string,
-        fontSize: number,
-        style: string = 'normal',
-        color: [number, number, number] = [0, 0, 0],
-        indent: number = 0,
-        fontName: string = 'Latin'
-      ) => {
-        pdf.setFontSize(fontSize);
-        pdf.setFont(fontName, resolvePdfFontStyle(fontName, style));
-        pdf.setTextColor(color[0], color[1], color[2]);
-        
-        const lines: string[] = pdf.splitTextToSize(text, contentWidth - indent);
-        const lineHeight = fontSize * 0.5; // Approximate line height in mm
-        
-        lines.forEach(line => {
-          checkPageBreak(lineHeight);
-          pdf.text(line, margin + indent, y);
-          y += lineHeight;
-        });
-        y += 2; // Paragraph spacing
+      const newPage = () => {
+        addPageFooter();
+        pdf.addPage();
+        pageNum += 1;
+        totalPages += 1;
+        y = MARGIN;
       };
 
-      const measureWrappedTextHeight = (
+      const checkBreak = (needed: number) => {
+        if (y + needed > FOOTER_Y - 6) newPage();
+      };
+
+      const measureText = (text: string, fs: number, indent = 0): number => {
+        const lines = pdf.splitTextToSize(text || '', contentWidth - indent);
+        return lines.length * lh(fs) + 2;
+      };
+
+      /** Render wrapped text, returns new y */
+      const addText = (
         text: string,
-        fontSize: number,
-        indent: number = 0,
+        fs: number,
+        style = 'normal',
+        color: [number,number,number] = C_NAVY,
+        indent = 0,
+        font = 'Latin',
+        lineGap = 2
       ) => {
+        pdf.setFontSize(fs);
+        pdf.setFont(font, resolvePdfFontStyle(font, style));
+        pdf.setTextColor(...color);
         const lines: string[] = pdf.splitTextToSize(text || '', contentWidth - indent);
-        const lineHeight = fontSize * 0.5;
-        return (lines.length * lineHeight) + 2;
+        lines.forEach(line => {
+          checkBreak(lh(fs));
+          pdf.text(line, MARGIN + indent, y);
+          y += lh(fs);
+        });
+        y += lineGap;
       };
 
-      const measureTurnBlockHeight = (turn: TranscriptionResult['turns'][number]) => {
-        let height = 19;
-        height += measureWrappedTextHeight(turn.original || '', 13, 4) + 4;
-        if (turn.transliterated) {
-          height += measureWrappedTextHeight(turn.transliterated, 9, 4) + 4;
-        }
-        height += measureWrappedTextHeight(turn.translated || '', 10, 4) + 10;
-        return height;
+      /** Thin micro-label above content (ORIGINAL SCRIPT / TRANSLITERATION / ENGLISH TRANSLATION) */
+      const addFieldLabel = (label: string, indent = 0) => {
+        pdf.setFont('Latin', 'bold');
+        pdf.setFontSize(6.5);
+        pdf.setTextColor(...C_MUTED);
+        checkBreak(5);
+        pdf.text(label, MARGIN + indent, y);
+        y += 5;
       };
 
-      const drawSectionDivider = () => {
-        pdf.setDrawColor(15, 23, 42);
-        pdf.setLineWidth(1.2);
-        pdf.line(margin, y, margin + 52, y);
+      /** Filled pill tag — e.g. "AGENCY SOCIAL" or "HOUSEHOLD · SOCIAL NORMS" */
+      const addTag = (label: string, bgColor: [number,number,number], textColor: [number,number,number] = C_WHITE) => {
+        pdf.setFont('Latin', 'bold');
+        pdf.setFontSize(7);
+        const textW = pdf.getTextWidth(label);
+        const padH = 2.2, padV = 1.8;
+        const pillW = textW + padH * 2;
+        const pillH = 5.5;
+        pdf.setFillColor(...bgColor);
+        pdf.roundedRect(MARGIN, y, pillW, pillH, 1.5, 1.5, 'F');
+        pdf.setTextColor(...textColor);
+        pdf.text(label, MARGIN + padH, y + pillH - padV);
+        y += pillH + 3;
       };
 
-      // 1. Header
-      pdf.setTextColor(15, 23, 42);
+      /** Horizontal rule */
+      const hRule = (color: [number,number,number] = C_BORDER, width = contentWidth, lw = 0.3) => {
+        pdf.setDrawColor(...color);
+        pdf.setLineWidth(lw);
+        pdf.line(MARGIN, y, MARGIN + width, y);
+        y += 4;
+      };
+
+      // ══════════════════════════════════════════════════════════════════════
+      // PAGE 1 — COVER / HEADER
+      // ══════════════════════════════════════════════════════════════════════
+      y = MARGIN;
+
+      // Violet top accent bar
+      pdf.setFillColor(...C_VIOLET);
+      pdf.rect(0, 0, pageWidth, 1.5, 'F');
+
+      // Main title block
+      y = MARGIN + 4;
       pdf.setFont('Latin', 'bold');
-      pdf.setFontSize(20);
-      pdf.text('Viveka Analysis Dossier', margin, y);
-      pdf.setTextColor(124, 58, 237);
-      pdf.setFontSize(7.5);
-      pdf.text('AWESOME FRAMEWORK VERIFIED  •  ' + new Date().toLocaleDateString(), margin, y + 5);
-      y += 13;
+      pdf.setFontSize(22);
+      pdf.setTextColor(...C_NAVY);
+      pdf.text('Viveka AI', MARGIN, y);
+      y += 8;
 
-      // 2. Metadata Block
-      pdf.setTextColor(100, 116, 139);
-      pdf.setFontSize(8);
-      pdf.setFont('Latin', 'bold');
-      pdf.text(`Source: ${originalFileName || "Session_Archive"}`, margin, y);
       pdf.setFont('Latin', 'normal');
-      y += 6;
-      drawSectionDivider();
-      y += 12;
+      pdf.setFontSize(9);
+      pdf.setTextColor(...C_SLATE);
+      pdf.text('QUALITATIVE VERBATIM SPECIALIST', MARGIN, y);
+      y += 5;
 
-      // 3. Executive Synthesis
-      addWrappedText('SUMMARY OF INTERVIEW', 13, 'bold', [15, 23, 42]);
-      y += 2;
-      const summaryHeight = Math.max(38, measureWrappedTextHeight(executiveText, 10, 8) + 16);
-      checkPageBreak(summaryHeight + 6);
-      const summaryTop = y;
-      pdf.setFillColor(248, 250, 252);
-      pdf.setDrawColor(232, 236, 243);
-      pdf.roundedRect(margin, summaryTop, contentWidth, summaryHeight, 6, 6, 'FD');
-      pdf.setFillColor(124, 58, 237);
-      pdf.roundedRect(margin, summaryTop, 3, summaryHeight, 2, 2, 'F');
-      y = summaryTop + 8;
-      addWrappedText(executiveText, 10, 'italic', [51, 65, 85], 8, detectFontFamily(executiveText));
-      y = summaryTop + summaryHeight + 8;
+      pdf.setFont('Latin', 'bold');
+      pdf.setFontSize(12);
+      pdf.setTextColor(...C_NAVY);
+      pdf.text('Research Dossier', MARGIN, y);
+      pdf.setTextColor(...C_VIOLET);
+      pdf.text(' AWESOME Framework', MARGIN + pdf.getTextWidth('Research Dossier'), y);
+      y += 7;
 
-      // 4. Verbatim Record
-      checkPageBreak(20);
-      addWrappedText('FULL VERBATIM RECORD (100%)', 12, 'bold', [15, 23, 42]);
-      pdf.setDrawColor(226, 232, 240);
-      pdf.setLineWidth(0.6);
-      pdf.line(margin, y, margin + contentWidth * 0.42, y);
+      // "VIVEKA AI · HIGH-FIDELITY QUALITATIVE RESEARCH" badge
+      const badgeLabel = 'VIVEKA AI  ·  HIGH-FIDELITY QUALITATIVE RESEARCH';
+      pdf.setFont('Latin', 'bold');
+      pdf.setFontSize(6.5);
+      const badgeW = pdf.getTextWidth(badgeLabel) + 8;
+      pdf.setFillColor(...C_NAVY);
+      pdf.roundedRect(MARGIN, y, badgeW, 5.5, 1.5, 1.5, 'F');
+      pdf.setTextColor(...C_WHITE);
+      pdf.text(badgeLabel, MARGIN + 4, y + 3.8);
       y += 10;
 
-      result.turns?.forEach((turn) => {
-        checkPageBreak(measureTurnBlockHeight(turn));
-        // Speaker Header
-        pdf.setFillColor(248, 250, 252);
-        pdf.rect(margin, y, contentWidth, 9, 'F');
-        pdf.setTextColor(124, 58, 237);
-        pdf.setFontSize(8);
+      hRule(C_BORDER, contentWidth, 0.4);
+
+      // Metadata info card
+      const metaTop = y;
+      const metaLines = [
+        { label: 'DOCUMENT', value: originalFileName || 'Session_Archive' },
+        { label: 'GENERATED', value: new Date().toLocaleString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }) },
+      ];
+      const metaCardH = metaLines.length * 9 + 6;
+      pdf.setFillColor(...C_BG_LIGHT);
+      pdf.setDrawColor(...C_BORDER);
+      pdf.setLineWidth(0.3);
+      pdf.roundedRect(MARGIN, metaTop, contentWidth, metaCardH, 3, 3, 'FD');
+      y = metaTop + 7;
+      metaLines.forEach(({ label, value }) => {
         pdf.setFont('Latin', 'bold');
-        pdf.text(normalizeSpeakerLabel(turn.speaker).toUpperCase(), margin + 4, y + 5.8);
-        pdf.setTextColor(100, 116, 139);
+        pdf.setFontSize(7);
+        pdf.setTextColor(...C_MUTED);
+        pdf.text(label, MARGIN + 5, y);
+        pdf.setFont('Latin', 'normal');
+        pdf.setFontSize(8.5);
+        pdf.setTextColor(...C_NAVY);
+        pdf.text(value, MARGIN + 30, y);
+        y += 9;
+      });
+      y = metaTop + metaCardH + 10;
+
+      // ── EXECUTIVE SYNTHESIS on cover ──────────────────────────────────────
+      pdf.setFont('Latin', 'bold');
+      pdf.setFontSize(9);
+      pdf.setTextColor(...C_MUTED);
+      pdf.text('EXECUTIVE SYNTHESIS', MARGIN, y);
+      y += 7;
+
+      const execItems = (result.executiveSynthesis || []).filter(cs => cs.text?.trim());
+      if (execItems.length === 0 && result.summary) {
+        execItems.push({ chunk_id: 1, text: result.summary });
+      }
+
+      execItems.forEach((cs, idx) => {
+        const textH = measureText(cs.text, 9.5, 0);
+        const cardH = Math.max(22, textH + 14);
+        checkBreak(cardH + 4);
+
+        // Card background
+        pdf.setFillColor(...C_WHITE);
+        pdf.setDrawColor(...C_BORDER);
+        pdf.setLineWidth(0.3);
+        pdf.roundedRect(MARGIN, y, contentWidth, cardH, 3, 3, 'FD');
+
+        // Numbered badge (filled circle)
+        const badgeR = 3.8;
+        pdf.setFillColor(...C_VIOLET);
+        pdf.circle(MARGIN + badgeR + 4, y + badgeR + 5, badgeR, 'F');
+        pdf.setFont('Latin', 'bold');
+        pdf.setFontSize(7);
+        pdf.setTextColor(...C_WHITE);
+        pdf.text(`${idx + 1}`, MARGIN + badgeR + 4, y + badgeR + 5 + 2.2, { align: 'center' });
+
+        const textX = MARGIN + badgeR * 2 + 10;
+        const textW = contentWidth - badgeR * 2 - 14;
+        pdf.setFont('Latin', 'normal');
+        pdf.setFontSize(9.5);
+        pdf.setTextColor(...C_BODY);
+        const lines: string[] = pdf.splitTextToSize(cs.text, textW);
+        let ty = y + 8;
+        lines.forEach(line => { pdf.text(line, textX, ty); ty += lh(9.5); });
+        y += cardH + 5;
+      });
+
+      addPageFooter();
+
+      // ══════════════════════════════════════════════════════════════════════
+      // VERBATIM TRANSCRIPT — one turn per block
+      // ══════════════════════════════════════════════════════════════════════
+      pdf.addPage(); pageNum++; totalPages++;
+      y = MARGIN;
+
+      pdf.setFillColor(...C_VIOLET);
+      pdf.rect(0, 0, pageWidth, 1.5, 'F');
+
+      pdf.setFont('Latin', 'bold');
+      pdf.setFontSize(9);
+      pdf.setTextColor(...C_MUTED);
+      pdf.text('VERBATIM TRANSCRIPT', MARGIN, y + 6);
+      y += 14;
+      hRule(C_BORDER);
+
+      result.turns?.forEach((turn, idx) => {
+        const turnNum = idx + 1;
+
+        // Estimate block height for page-break decision
+        const origH  = measureText(turn.original || '', 13, 5);
+        const transH = turn.transliterated ? measureText(turn.transliterated, 9, 5) : 0;
+        const tranE  = measureText(turn.translated || '', 9.5, 5);
+        const blockH = 12 + 5 + origH + (turn.transliterated ? 5 + transH : 0) + 5 + tranE + 12;
+        checkBreak(blockH);
+
+        // Turn number circle
+        const circR = 3.8;
+        const circX = MARGIN + circR;
+        const circY = y + circR + 1;
+        pdf.setFillColor(...C_VIOLET);
+        pdf.circle(circX, circY, circR, 'F');
+        pdf.setFont('Latin', 'bold');
+        pdf.setFontSize(7);
+        pdf.setTextColor(...C_WHITE);
+        pdf.text(`${turnNum}`, circX, circY + 2.2, { align: 'center' });
+
+        // Speaker label
+        pdf.setFont('Latin', 'bold');
+        pdf.setFontSize(8);
+        pdf.setTextColor(...C_NAVY);
+        pdf.text(normalizeSpeakerLabel(turn.speaker).toUpperCase(), MARGIN + circR * 2 + 4, y + 6);
+
+        // Timestamp pill (right-aligned)
+        const tsLabel = turn.timestamp || formatSecondsForPdf(turn.start_time_seconds);
         pdf.setFont('Latin', 'normal');
         pdf.setFontSize(7);
-        pdf.text(`Start ${turn.timestamp}`, pageWidth - margin - 24, y + 5.8);
-        y += 13;
+        pdf.setTextColor(...C_SLATE);
+        const tsW = pdf.getTextWidth(tsLabel) + 6;
+        pdf.setFillColor(...C_BG_LIGHT);
+        pdf.roundedRect(pageWidth - MARGIN - tsW, y + 1.5, tsW, 5, 1.5, 1.5, 'F');
+        pdf.setTextColor(...C_SLATE);
+        pdf.text(tsLabel, pageWidth - MARGIN - tsW + 3, y + 5.5);
+        y += 11;
 
-        pdf.setTextColor(100, 116, 139);
-        pdf.setFont('Latin', 'bold');
-        pdf.setFontSize(7);
-        const accuracyText = typeof turn.confidence === 'number' ? `${(turn.confidence * 100).toFixed(1)}%` : 'N/A';
-        pdf.text(
-          `End ${formatSecondsForPdf(turn.end_time_seconds)}   Duration ${(Math.max(turn.duration_seconds ?? 0, 0)).toFixed(1)}s   Accuracy ${accuracyText}`,
-          margin + 4,
-          y,
-        );
-        y += 6;
+        // Vertical left accent line for the whole turn block
+        const turnBlockTopY = y;
 
-        pdf.setTextColor(180, 190, 205);
-        pdf.setFont('Latin', 'bold');
-        pdf.setFontSize(6.5);
-        pdf.text('ORIGINAL', margin + 4, y);
-        y += 4;
-        addWrappedText(turn.original, 13, 'bold', [15, 23, 42], 4, detectFontFamily(turn.original));
+        // ORIGINAL SCRIPT
+        addFieldLabel('ORIGINAL SCRIPT', 5);
+        const origFont = detectFontFamily(turn.original);
+        addText(turn.original || '', 13, 'bold', C_NAVY, 5, origFont, 5);
 
+        // TRANSLITERATION
         if (turn.transliterated) {
-          pdf.setTextColor(180, 190, 205);
-          pdf.setFontSize(6.5);
-          pdf.setFont('Latin', 'bold');
-          pdf.text('TRANSLITERATION', margin + 4, y);
-          y += 4;
-          addWrappedText(turn.transliterated, 9, 'italic', [120, 130, 145], 4, detectFontFamily(turn.transliterated));
+          addFieldLabel('TRANSLITERATION', 5);
+          addText(turn.transliterated, 9, 'normal', C_SLATE, 5, 'Latin', 4);
         }
 
-        pdf.setTextColor(180, 190, 205);
-        pdf.setFontSize(6.5);
-        pdf.setFont('Latin', 'bold');
-        pdf.text('ENGLISH TRANSLATION', margin + 4, y);
-        y += 4;
-        addWrappedText(turn.translated, 10, 'italic', [51, 65, 85], 4, detectFontFamily(turn.translated));
-        pdf.setDrawColor(232, 236, 243);
-        pdf.setLineWidth(0.4);
-        pdf.line(margin, y + 1, margin + contentWidth, y + 1);
-        y += 8;
+        // ENGLISH TRANSLATION — slight indent box
+        addFieldLabel('ENGLISH TRANSLATION', 5);
+        const transLines = pdf.splitTextToSize(turn.translated || '', contentWidth - 10);
+        const transBlockH = transLines.length * lh(9.5) + 6;
+        checkBreak(transBlockH);
+        pdf.setFillColor(250, 251, 253);
+        pdf.setDrawColor(...C_BORDER);
+        pdf.setLineWidth(0.25);
+        pdf.roundedRect(MARGIN + 5, y, contentWidth - 5, transBlockH, 2, 2, 'FD');
+        // left violet accent on translation box
+        pdf.setFillColor(...C_VIOLET);
+        pdf.rect(MARGIN + 5, y, 2, transBlockH, 'F');
+        pdf.setFont('Latin', 'normal');
+        pdf.setFontSize(9.5);
+        pdf.setTextColor(...C_BODY);
+        let ty2 = y + 4;
+        transLines.forEach((line: string) => { pdf.text(line, MARGIN + 10, ty2); ty2 += lh(9.5); });
+        y += transBlockH + 5;
+
+        // Left accent bar for whole turn block
+        pdf.setFillColor(...C_VIOLET);
+        pdf.rect(MARGIN, turnBlockTopY - 3, 1.5, y - turnBlockTopY + 2, 'F');
+
+        // Bottom separator
+        hRule(C_BORDER, contentWidth, 0.25);
       });
 
-      // 5. Artifacts Sections
-      pdf.addPage();
-      y = 20;
-      addWrappedText("QUALITATIVE MAPPING ARTIFACTS", 14, 'bold', [0, 0, 0]);
-      y += 10;
+      addPageFooter();
 
-      // Artifact 1: Evidence Matrix
-      addWrappedText("ARTIFACT 1: EVIDENCE MATRIX", 11, 'bold', [0, 0, 0]);
+      // ══════════════════════════════════════════════════════════════════════
+      // ARTIFACT 1 — EVIDENCE MATRIX
+      // ══════════════════════════════════════════════════════════════════════
+      pdf.addPage(); pageNum++; totalPages++;
+      y = MARGIN;
+      pdf.setFillColor(...C_VIOLET);
+      pdf.rect(0, 0, pageWidth, 1.5, 'F');
+
+      pdf.setFont('Latin', 'bold');
+      pdf.setFontSize(9);
+      pdf.setTextColor(...C_MUTED);
+      pdf.text('ARTIFACT 1 — EVIDENCE MATRIX', MARGIN, y + 6);
+      y += 14;
+      hRule(C_BORDER);
+
       result.artifact1_evidence?.forEach(row => {
-        checkPageBreak(40);
-        pdf.setDrawColor(241, 245, 249);
-        //pdf.rect(margin, y, contentWidth, 35);
+        // Dimension · Domain tag (navy pill)
+        const tagLabel = `${(row.dimension || '').toUpperCase()}  ·  ${(row.domain || '').toUpperCase()}`;
+        const tagW = pdf.setFont('Latin', 'bold') && pdf.setFontSize(7) && pdf.getTextWidth(tagLabel) + 8;
+        const tagH = 5.5;
+        checkBreak(tagH + 4);
+        pdf.setFillColor(...C_NAVY);
+        pdf.roundedRect(MARGIN, y, tagW as unknown as number, tagH, 1.5, 1.5, 'F');
+        pdf.setTextColor(...C_WHITE);
+        pdf.setFont('Latin', 'bold');
+        pdf.setFontSize(7);
+        pdf.text(tagLabel, MARGIN + 4, y + tagH - 1.8);
+        y += tagH + 4;
+
+        // Evidence quote
+        const evidenceText = `"${row.evidence || ''}"`;
+        checkBreak(measureText(evidenceText, 10, 0) + 4);
+        addText(evidenceText, 10, 'italic', C_BODY, 0, detectFontFamily(row.evidence), 3);
+
+        // Systemic reasoning label
+        pdf.setFont('Latin', 'bold');
+        pdf.setFontSize(6.5);
+        pdf.setTextColor(...C_MUTED);
+        checkBreak(5);
+        pdf.text('SYSTEMIC REASONING', MARGIN, y);
         y += 5;
-        pdf.setFontSize(8);
-        pdf.setTextColor(0, 0, 0);
-        pdf.text(`${row.dimension} | ${row.domain}`, margin + 5, y);
-        y += 6;
-        addWrappedText(`Evidence: "${row.evidence}"`, 9, 'italic', [0, 0, 0], 5, detectFontFamily(row.evidence));
-        addWrappedText(`Reasoning: ${row.reasoning}`, 8, 'normal', [60, 60, 60], 5, detectFontFamily(row.reasoning));
-        y += 5;
+
+        // Reasoning body
+        addText(row.reasoning || '', 8.5, 'normal', C_TAG_TEXT, 0, 'Latin', 3);
+
+        hRule([241, 245, 249]);
       });
 
-      y += 20;
-      addWrappedText("ARTIFACT 2: CONTEXT MATRIX", 12, 'bold', [0, 0, 0]);
-      y += 5;
+      addPageFooter();
+
+      // ══════════════════════════════════════════════════════════════════════
+      // ARTIFACT 2 — CONTEXT MATRIX
+      // ══════════════════════════════════════════════════════════════════════
+      pdf.addPage(); pageNum++; totalPages++;
+      y = MARGIN;
+      pdf.setFillColor(...C_VIOLET);
+      pdf.rect(0, 0, pageWidth, 1.5, 'F');
+
+      pdf.setFont('Latin', 'bold');
+      pdf.setFontSize(9);
+      pdf.setTextColor(...C_MUTED);
+      pdf.text('ARTIFACT 2 — CONTEXT MATRIX', MARGIN, y + 6);
+      y += 14;
+      hRule(C_BORDER);
+
       result.artifact2_context?.forEach(row => {
-        checkPageBreak(25);
-        pdf.setDrawColor(226, 232, 240);
-        //pdf.rect(margin, y, contentWidth, 20);
+        const tagLabel = `${(row.contextLevel || '').toUpperCase()}  ·  ${(row.domain || '').toUpperCase()}`;
+        pdf.setFont('Latin', 'bold');
+        pdf.setFontSize(7);
+        const tagW2 = pdf.getTextWidth(tagLabel) + 8;
+        checkBreak(5.5 + 4);
+        pdf.setFillColor(...C_NAVY);
+        pdf.roundedRect(MARGIN, y, tagW2, 5.5, 1.5, 1.5, 'F');
+        pdf.setTextColor(...C_WHITE);
+        pdf.text(tagLabel, MARGIN + 4, y + 3.7);
+        y += 9;
+        addText(row.finding || '', 9.5, 'normal', C_BODY, 0, 'Latin', 3);
+        hRule([241, 245, 249]);
+      });
+
+      addPageFooter();
+
+      // ══════════════════════════════════════════════════════════════════════
+      // ARTIFACT 3 — MECHANISM CHAINS
+      // ══════════════════════════════════════════════════════════════════════
+      pdf.addPage(); pageNum++; totalPages++;
+      y = MARGIN;
+      pdf.setFillColor(...C_VIOLET);
+      pdf.rect(0, 0, pageWidth, 1.5, 'F');
+
+      pdf.setFont('Latin', 'bold');
+      pdf.setFontSize(9);
+      pdf.setTextColor(...C_MUTED);
+      pdf.text('ARTIFACT 3 — MECHANISM CHAINS', MARGIN, y + 6);
+      y += 14;
+      hRule(C_BORDER);
+
+      result.artifact3_chains?.forEach((chain, idx) => {
+        const chainLabel = chain?.chain_id || `Chain ${idx + 1}`;
+        const pathH = measureText(chain?.pathway || '', 10, 0);
+        const impactH = measureText(chain?.impacts || '', 9, 0);
+        checkBreak(8 + pathH + 6 + impactH + 14);
+
+        // Chain label
+        pdf.setFont('Latin', 'bold');
+        pdf.setFontSize(8);
+        pdf.setTextColor(...C_VIOLET);
+        pdf.text(chainLabel.toUpperCase(), MARGIN, y + 5);
+        y += 8;
+
+        // Systemic pathway label
+        pdf.setFont('Latin', 'bold');
+        pdf.setFontSize(6.5);
+        pdf.setTextColor(...C_MUTED);
+        pdf.text('SYSTEMIC PATHWAY', MARGIN, y);
+        y += 5;
+        addText(chain?.pathway || '', 10, 'normal', C_BODY, 0, detectFontFamily(chain?.pathway || ''), 4);
+
+        // Impact synthesis label
+        const impactLabel = 'IMPACT SYNTHESIS';
+        pdf.setFont('Latin', 'bold');
+        pdf.setFontSize(6.5);
+        pdf.setTextColor(...C_MUTED);
+        pdf.text(impactLabel, MARGIN, y);
+        y += 5;
+
+        // Impact pill
+        const impactText = chain?.impacts || '';
+        const impactLineW = pdf.getTextWidth(impactText);
+        if (impactLineW < contentWidth - 10) {
+          // Short enough for a pill
+          const pillW2 = Math.min(impactLineW + 10, contentWidth);
+          const pillH2 = 7;
+          pdf.setFillColor(...C_BG_LIGHT);
+          pdf.setDrawColor(...C_BORDER);
+          pdf.setLineWidth(0.3);
+          pdf.roundedRect(MARGIN, y, pillW2, pillH2, 2, 2, 'FD');
+          pdf.setFont('Latin', 'bold');
+          pdf.setFontSize(8);
+          pdf.setTextColor(...C_NAVY);
+          pdf.text(impactText, MARGIN + 5, y + 4.8);
+          y += pillH2 + 3;
+        } else {
+          addText(impactText, 8.5, 'bold', C_NAVY, 0, 'Latin', 3);
+        }
+
+        hRule([241, 245, 249]);
+      });
+
+      addPageFooter();
+
+      // ══════════════════════════════════════════════════════════════════════
+      // ARTIFACT 4 — LINK MAP (Systems View)
+      // ══════════════════════════════════════════════════════════════════════
+      pdf.addPage(); pageNum++; totalPages++;
+      y = MARGIN;
+      pdf.setFillColor(...C_VIOLET);
+      pdf.rect(0, 0, pageWidth, 1.5, 'F');
+
+      pdf.setFont('Latin', 'bold');
+      pdf.setFontSize(9);
+      pdf.setTextColor(...C_MUTED);
+      pdf.text('ARTIFACT 4 — LINK MAP (SYSTEMS VIEW)', MARGIN, y + 6);
+      y += 14;
+      hRule(C_BORDER);
+
+      const linkMap = result.artifact4_link_map || '';
+      if (linkMap && linkMap.trim() && linkMap !== 'Master Research Database Link Verified') {
+        // Render Mermaid source as readable text in the dossier (client-side Mermaid rendering
+        // is not available inside jsPDF; we present the diagram definition with instructions).
+        pdf.setFont('Latin', 'bold');
+        pdf.setFontSize(7.5);
+        pdf.setTextColor(...C_MUTED);
+        pdf.text('SYSTEMS DIAGRAM DEFINITION (Mermaid)', MARGIN, y);
+        y += 6;
+
+        // Parse node lines and render them legibly
+        const mermaidLines = linkMap.split(/\\n|\n/).map(l => l.trim()).filter(Boolean);
+        const diagramCardH = Math.max(30, mermaidLines.length * 5.5 + 10);
+        checkBreak(diagramCardH + 4);
+
+        pdf.setFillColor(15, 20, 35);
+        pdf.setDrawColor(...C_BORDER);
+        pdf.setLineWidth(0.3);
+        pdf.roundedRect(MARGIN, y, contentWidth, diagramCardH, 3, 3, 'F');
+
+        let dy = y + 7;
+        mermaidLines.forEach(line => {
+          if (dy + 5 > y + diagramCardH - 3) return;
+          pdf.setFont('Latin', 'normal');
+          pdf.setFontSize(7.5);
+          pdf.setTextColor(180, 220, 255);
+          const displayLine = pdf.splitTextToSize(line, contentWidth - 10)[0] || line;
+          pdf.text(displayLine, MARGIN + 5, dy);
+          dy += 5.5;
+        });
+        y += diagramCardH + 5;
+
+        // Relationship narrative below the code block
+        pdf.setFont('Latin', 'bold');
+        pdf.setFontSize(7.5);
+        pdf.setTextColor(...C_MUTED);
+        checkBreak(8);
+        pdf.text('SYSTEMS NARRATIVE', MARGIN, y);
+        y += 6;
+
+        // Parse edges from Mermaid syntax to derive a readable narrative
+        const edgePattern = /\[([^\]]+)\]\s*--?>?\s*\[([^\]]+)\]/g;
+        const narrativeLines: string[] = [];
+        let match;
+        let tempLinkMap = linkMap;
+        while ((match = edgePattern.exec(tempLinkMap)) !== null) {
+          narrativeLines.push(`• ${match[1]} → ${match[2]}`);
+          if (narrativeLines.length >= 10) break;
+        }
+
+        if (narrativeLines.length > 0) {
+          narrativeLines.forEach(nl => {
+            addText(nl, 9, 'normal', C_BODY, 0, 'Latin', 1.5);
+          });
+        } else {
+          // Fallback: just render the raw text readably
+          addText(linkMap.replace(/\\n/g, ' | '), 9, 'normal', C_BODY, 0, 'Latin', 3);
+        }
+      } else {
+        // Fallback when no Mermaid was generated
+        pdf.setFont('Latin', 'italic');
         pdf.setFontSize(9);
-        pdf.text(`${row.contextLevel} | ${row.domain}`, margin + 5, y + 7);
-        addWrappedText(row.finding, 9, 'normal', [71, 85, 105], 5, detectFontFamily(row.finding));
+        pdf.setTextColor(...C_MUTED);
+        pdf.text('No link map data was generated for this session.', MARGIN, y + 8);
+        y += 18;
+      }
+
+      // Hub variables note
+      checkBreak(14);
+      pdf.setFont('Latin', 'bold');
+      pdf.setFontSize(7.5);
+      pdf.setTextColor(...C_MUTED);
+      pdf.text('NOTE', MARGIN, y);
+      y += 5;
+      addText(
+        'The Link Map represents the systems-level relationships between factors, constraints, interventions, '
+        + 'and impacts identified in this session. Hub variables (nodes with the most connections) are the '
+        + 'highest-leverage points for intervention. Feedback loops indicate self-reinforcing dynamics that '
+        + 'may amplify either empowerment or vulnerability over time.',
+        8.5, 'normal', C_TAG_TEXT, 0, 'Latin', 3
+      );
+
+      addPageFooter();
+
+      // ══════════════════════════════════════════════════════════════════════
+      // ARTIFACT 5 — VULNERABILITY HOTSPOTS
+      // ══════════════════════════════════════════════════════════════════════
+      pdf.addPage(); pageNum++; totalPages++;
+      y = MARGIN;
+      pdf.setFillColor(...C_VIOLET);
+      pdf.rect(0, 0, pageWidth, 1.5, 'F');
+
+      pdf.setFont('Latin', 'bold');
+      pdf.setFontSize(9);
+      pdf.setTextColor(...C_MUTED);
+      pdf.text('ARTIFACT 5 — VULNERABILITY HOTSPOTS', MARGIN, y + 6);
+      y += 14;
+      hRule(C_BORDER);
+
+      result.artifact5_hotspots?.forEach((item, idx) => {
+        // Hotspot label
+        pdf.setFont('Latin', 'bold');
+        pdf.setFontSize(7.5);
+        pdf.setTextColor(...C_MUTED);
+        pdf.text(`VULNERABLE POPULATION`, MARGIN, y);
         y += 5;
-      });
+        addText(item.vulnerable || '', 10, 'bold', C_NAVY, 0, detectFontFamily(item.vulnerable), 4);
 
-      // Artifact 3: Mechanism Chains
-      y += 10;
-      addWrappedText("ARTIFACT 3: MECHANISM CHAINS", 11, 'bold', [0, 0, 0]);
-      result.artifact3_chains?.forEach(chain => {
-        checkPageBreak(30);
-        pdf.setFillColor(15, 23, 42);
-        //pdf.rect(margin, y, 15, 15, 'F');
-        pdf.setTextColor(255, 255, 255);
-        pdf.setFontSize(10);
-        pdf.text(chain?.chain_id || ''  , margin + 5, y + 10);
-        
-        pdf.setTextColor(0, 0, 0);
-        addWrappedText(chain?.pathway, 10, 'bold', [0, 0, 0], 20, detectFontFamily(chain?.pathway || ''));
-        addWrappedText(chain?.impacts, 9, 'italic', [60, 60, 60], 20, detectFontFamily(chain?.impacts || ''));
-        y += 10;
-      });
-
-      y += 10;
-      addWrappedText("ARTIFACT 5: VULNERABILITY HOTSPOTS", 12, 'bold', [0, 0, 0]);
-      result.artifact5_hotspots?.forEach(item => {
-        checkPageBreak(30);
-        pdf.setDrawColor(254, 226, 226);
-        pdf.setFillColor(255, 251, 251);
-        //pdf.rect(margin, y, contentWidth, 25, 'FD');
-        addWrappedText(item.vulnerable, 10, 'bold', [0, 0, 0], 5, detectFontFamily(item.vulnerable));
-        addWrappedText(`Drivers: ${item.drivers}`, 9, 'normal', [60, 60, 60], 5, detectFontFamily(item.drivers));
+        pdf.setFont('Latin', 'bold');
+        pdf.setFontSize(7.5);
+        pdf.setTextColor(...C_MUTED);
+        checkBreak(5);
+        pdf.text('CAUSAL DRIVERS', MARGIN, y);
         y += 5;
+        addText(item.drivers || '', 9.5, 'normal', C_BODY, 0, 'Latin', 3);
+
+        hRule([241, 245, 249]);
       });
 
-      // Footer Sync
-      pdf.setFontSize(7);
-      pdf.setTextColor(203, 213, 225);
-      pdf.text("Viveka Master Database Sync v8.0 | AWESOME Qual Mapping", pageWidth / 2, pageHeight - 10, { align: 'center' });
+      addPageFooter();
 
-      const fileName = `Viveka_Dossier_${Date.now()}.pdf`;
+      // ── Patch page numbers (replace {TOTAL} placeholder) ─────────────────
+      // jsPDF doesn't support auto page-count; we generate, save, done.
+      // Patch: re-iterate internal pages to replace {TOTAL}
+      const totalStr = String(totalPages);
+      // jsPDF stores text ops internally — we use a second-pass approach:
+      // Simply rely on totalPages counter we tracked ourselves.
+      // The footer already wrote `pageNum / {TOTAL}` — we need to overwrite those.
+      // Simplest approach: iterate pages we know and overwrite footer right-side.
+      const savedY = y;
+      for (let p = 1; p <= totalPages; p++) {
+        (pdf as any).setPage(p);
+        // white-out the placeholder then rewrite
+        pdf.setFillColor(255, 255, 255);
+        pdf.rect(pageWidth - MARGIN - 18, FOOTER_Y - 4, 18, 5, 'F');
+        pdf.setFont('Latin', 'normal');
+        pdf.setFontSize(6.5);
+        pdf.setTextColor(...C_MUTED);
+        pdf.text(`${p} / ${totalStr}`, pageWidth - MARGIN, FOOTER_Y, { align: 'right' });
+      }
+
+      // ── Save ───────────────────────────────────────────────────────────────
+      const safeFilename = (originalFileName || 'session')
+        .replace(/\.[^/.]+$/, '')
+        .replace(/[^a-zA-Z0-9_\-]/g, '_')
+        .slice(0, 40);
+      const fileName = `Viveka_${safeFilename}_${Date.now()}.pdf`;
       pdf.save(fileName);
-      
+
       const blob = pdf.output('blob');
       try {
         await uploadToMinio(new File([blob], fileName, { type: 'application/pdf' }));
       } catch (error) {
         console.warn('Skipping dossier sync upload:', error);
       }
-      
+
     } catch (error: any) {
       console.error("Dossier Synthesis Protocol Violation:", error);
       alert(`Synthesis Error: ${error.message || "Archive data incomplete."}`);
@@ -1208,4 +1627,3 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
     </div>
   );
 };
-
