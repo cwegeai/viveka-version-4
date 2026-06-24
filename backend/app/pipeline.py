@@ -211,37 +211,30 @@ class PipelineRunner:
         yield progress_event(PipelineStage.merging, "Merging chunk transcripts...", progress=75)
         merged = merge_chunk_results(final_chunks)
 
-        transcript_ready_result = await self.gemini.build_transcript_ready_result(merged, include_summary=False)
+        yield progress_event(PipelineStage.merging, "Generating transcript, translation & summary...", progress=80)
+
+        try:
+            final_result = await self.gemini.build_transcript_ready_result(merged, include_summary=True)
+        except Exception as e:
+            logger.error(f"Gemini transcript/summary generation failed: {e}", exc_info=True)
+            final_result = self.gemini.build_default_result(merged)
+
         yield sse_event(
             PipelineStage.result.value,
             {
                 "stage": PipelineStage.result.value,
-                "message": "Transcript ready. Generating Gemini artifacts...",
-                "progress": 80,
-                "result": transcript_ready_result.model_dump(),
+                "message": "Transcript ready.",
+                "progress": 95,
+                "result": final_result.model_dump(),
             },
         )
 
-        yield progress_event(PipelineStage.artifact_generation, "Generating Gemini artifacts...", progress=88)
-        
-        if not self.settings.gemini_api_key:
-            logger.warning("GEMINI_API_KEY not configured. Skipping artifact generation.")
-        else:
-            logger.info(f"Calling Gemini artifact generation with {len(merged.speakers)} turns, transcript length: {len(merged.transcript)} chars")
-        
-        try:
-            final_result = await self.gemini.generate(merged)
-            logger.info(f"Gemini generation complete. Artifacts: evidence={len(final_result.artifact1_evidence)}, context={len(final_result.artifact2_context)}, chains={len(final_result.artifact3_chains)}, hotspots={len(final_result.artifact5_hotspots)}")
-        except Exception as e:
-            logger.error(f"Gemini generation failed with exception: {e}", exc_info=True)
-            raise
-
-        yield progress_event(PipelineStage.complete, "Transcription and analysis complete.", progress=100)
+        yield progress_event(PipelineStage.complete, "Transcription complete.", progress=100)
         yield sse_event(
             PipelineStage.complete.value,
             {
                 "stage": PipelineStage.complete.value,
-                "message": "Transcription and analysis complete.",
+                "message": "Transcription complete.",
                 "progress": 100,
                 "result": final_result.model_dump(),
             },

@@ -30,15 +30,22 @@ const Dashboard: React.FC = () => {
   const [status, setStatus] = useState('');
   const [progress, setProgress] = useState(0);
   const [fileDuration, setFileDuration] = useState<string>('');
+  const [fileDurationSeconds, setFileDurationSeconds] = useState<number>(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [processingTimeTaken, setProcessingTimeTaken] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<'upload' | 'record'>('upload');
   const sessionRef = useRef(0);
   const activeRequestRef = useRef<AbortController | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startTimeRef = useRef<number>(0);
+  // Track (elapsedSeconds, progress) pairs so ETA uses real measured rate
+  const progressHistoryRef = useRef<Array<{elapsed: number; progress: number}>>([]);
 
   useEffect(() => {
     if (isProcessing) {
       setElapsedSeconds(0);
+      startTimeRef.current = Date.now();
+      progressHistoryRef.current = [];
       timerRef.current = setInterval(() => setElapsedSeconds(s => s + 1), 1000);
     } else {
       if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
@@ -58,7 +65,10 @@ const Dashboard: React.FC = () => {
   setProgress(0);
   setStatus('');
   setFileDuration('');
+  setFileDurationSeconds(0);
   setElapsedSeconds(0);
+  setProcessingTimeTaken(null);
+  progressHistoryRef.current = [];
   setActiveTab('upload');
 };
   const navigate = useNavigate();
@@ -80,6 +90,7 @@ const Dashboard: React.FC = () => {
       const minutes = Math.floor(audio.duration / 60);
       const seconds = Math.floor(audio.duration % 60);
       setFileDuration(`${minutes}:${seconds.toString().padStart(2, '0')}`);
+      setFileDurationSeconds(Math.round(audio.duration));
     };
     
     setAudioUrl(audio.src);
@@ -93,7 +104,16 @@ const Dashboard: React.FC = () => {
         (msg, prog) => {
           setStatus(msg);
           if (prog !== undefined) {
-            setProgress(current => Math.max(current, prog));
+            setProgress(current => {
+              const next = Math.max(current, prog);
+              if (next !== current) {
+                const elapsed = Math.round((Date.now() - startTimeRef.current) / 1000);
+                progressHistoryRef.current.push({ elapsed, progress: next });
+                // Keep only last 6 data points for the rolling rate estimate
+                if (progressHistoryRef.current.length > 6) progressHistoryRef.current.shift();
+              }
+              return next;
+            });
           }
         },
         (partialResult) => {
@@ -106,6 +126,7 @@ const Dashboard: React.FC = () => {
       // ⭐ if user restarted → ignore this result
       if (currentSession !== sessionRef.current) return;
       setResult(transcription);
+      setProcessingTimeTaken(Math.round((Date.now() - startTimeRef.current) / 1000));
       await syncToBackend(file, transcription);
 
     } catch (error: any) {
@@ -177,7 +198,7 @@ const Dashboard: React.FC = () => {
               <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4">
                 <div className="flex-1">
                   <p className="font-bold text-slate-900 text-xs md:text-sm mb-1">Backend Transcription Pipeline</p>
-                  <p className="text-slate-500 text-[11px] md:text-xs">Deepgram handles server-side transcription. Gemini generates AWESOME artifacts after chunk merge.</p>
+                  <p className="text-slate-500 text-[11px] md:text-xs">Deepgram handles server-side transcription. Gemini generates translation and summary after chunk merge.</p>
                 </div>
                 <div className={`px-4 py-3 rounded-xl text-[10px] md:text-[11px] font-black uppercase tracking-widest shadow-sm ${backendPipelineConfigured ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
                   {backendPipelineConfigured ? 'Pipeline Ready' : 'Pipeline Not Configured'}
@@ -245,7 +266,7 @@ const Dashboard: React.FC = () => {
             <div className="min-h-[400px] md:min-h-[550px] bg-white rounded-[2rem] md:rounded-[3rem] border border-slate-100 shadow-2xl shadow-slate-200/50 flex flex-col items-center justify-center overflow-hidden">
                 {isProcessing ? (
   <div className="w-full max-w-lg text-center p-6 md:p-12 animate-fade-in">
-    
+
     {originalFile && (
       <div className="flex items-center justify-center gap-2 mb-5">
         <svg className="w-4 h-4 text-violet-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -254,54 +275,92 @@ const Dashboard: React.FC = () => {
         <span className="text-xs font-black uppercase tracking-widest text-violet-500 truncate max-w-[280px]" title={originalFile.name}>
           {originalFile.name}
         </span>
+        {fileDuration && (
+          <span className="text-xs text-slate-400 font-mono">· {fileDuration}</span>
+        )}
       </div>
     )}
 
-    <h2 className="text-xl md:text-3xl font-black uppercase text-[#1e293b] mb-6 md:mb-8 tracking-tighter">
+    <h2 className="text-lg md:text-xl font-black uppercase text-[#1e293b] mb-5 tracking-tighter leading-tight">
       {status}
     </h2>
 
-    <div className="w-full h-4 md:h-6 bg-slate-50 rounded-full overflow-hidden border-2 border-slate-100 p-1 md:p-1.5 mb-4 md:mb-6 shadow-inner">
+    <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden border border-slate-200 mb-3 shadow-inner">
       <div
-        className="h-full bg-violet-600 rounded-full transition-all duration-300"
-        style={{ width: `${progress}%` }}
+        className="h-full bg-violet-600 rounded-full transition-all duration-700"
+        style={{ width: `${Math.max(2, progress)}%` }}
       />
     </div>
 
+    {/* Stage labels under progress bar */}
+    <div className="flex justify-between text-[9px] font-black uppercase tracking-widest text-slate-300 mb-5 px-0.5">
+      <span className={progress >= 5  ? 'text-violet-400' : ''}>Upload</span>
+      <span className={progress >= 35 ? 'text-violet-400' : ''}>Transcribe</span>
+      <span className={progress >= 75 ? 'text-violet-400' : ''}>Merge</span>
+      <span className={progress >= 95 ? 'text-violet-400' : ''}>Done</span>
+    </div>
+
+    {/* Elapsed + ETA row */}
     {(() => {
-      const etaSec = progress > 5 && progress < 99 ? Math.round(elapsedSeconds * (100 - progress) / progress) : null;
       const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2,'0')}:${String(s % 60).padStart(2,'0')}`;
+
+      // Compute ETA from rolling progress rate
+      // Use last two recorded data points to get current velocity
+      const history = progressHistoryRef.current;
+      let etaSec: number | null = null;
+      if (progress >= 5 && progress < 98 && history.length >= 2) {
+        const oldest = history[0];
+        const newest = history[history.length - 1];
+        const deltaP = newest.progress - oldest.progress;
+        const deltaT = newest.elapsed - oldest.elapsed;
+        if (deltaP > 0 && deltaT > 0) {
+          const rate = deltaP / deltaT; // progress points per second
+          const remaining = 100 - newest.progress;
+          const rawEta = remaining / rate;
+          // Clamp ETA: at least 5s, at most 30 min
+          etaSec = Math.max(5, Math.min(1800, Math.round(rawEta)));
+        }
+      }
+
       return (
-        <div className="flex flex-col items-center gap-1 mb-4">
-          <div className="flex items-center justify-center gap-3">
-            <span className="w-2 h-2 bg-violet-500 rounded-full animate-pulse"></span>
-            <p className="text-slate-500 text-sm font-bold font-mono">{fmt(elapsedSeconds)} elapsed</p>
+        <div className="flex items-center justify-center gap-4 mb-5">
+          <div className="flex items-center gap-2">
+            <span className="w-1.5 h-1.5 bg-violet-500 rounded-full animate-pulse shrink-0"></span>
+            <span className="text-slate-500 text-sm font-bold font-mono">{fmt(elapsedSeconds)}</span>
+            <span className="text-slate-300 text-xs">elapsed</span>
           </div>
-          {etaSec !== null && (
-            <p className="text-violet-500 text-xs font-bold font-mono">~{fmt(etaSec)} remaining</p>
-          )}
+          <span className="text-slate-200">|</span>
+          <div className="text-xs font-bold font-mono">
+            {etaSec !== null ? (
+              <span className="text-violet-500">~{fmt(etaSec)} remaining</span>
+            ) : (
+              <span className="text-slate-400">{progress}%</span>
+            )}
+          </div>
         </div>
       );
     })()}
 
-    <p className="text-slate-400 text-xs md:text-sm italic font-semibold">
-      Processing verbatim data...
+    <p className="text-slate-400 text-xs italic font-semibold mb-8">
+      {progress < 25 ? 'Uploading audio file...'
+        : progress < 70 ? 'Transcribing audio in parallel chunks...'
+        : progress < 85 ? 'Merging chunk transcripts...'
+        : 'Generating summary & translation...'}
     </p>
 
-    {/* ⭐ Restart button */}
-  <button
-  onClick={restartSession}
-  className="mt-8 px-8 py-3 rounded-xl border border-rose-300 text-rose-600 font-bold hover:bg-rose-50 transition"
->
-  Cancel & Restart
-</button>
+    <button
+      onClick={restartSession}
+      className="px-8 py-3 rounded-xl border border-rose-300 text-rose-600 font-bold hover:bg-rose-50 transition"
+    >
+      Cancel & Restart
+    </button>
 
   </div>
 ) : (
   <div className="w-full h-full flex items-center justify-center p-4 md:p-10">
 <div className="flex flex-col items-center gap-6">
   {activeTab === 'upload' ? (
-    <FileUpload onFileSelect={handleAudioSource} isProcessing={isProcessing} />
+    <FileUpload onFileSelect={(file) => { if (file) handleAudioSource(file); }} isProcessing={isProcessing} />
   ) : (
     <LiveRecorder onRecordingComplete={handleAudioSource} isProcessing={isProcessing} />
   )}
@@ -322,7 +381,7 @@ const Dashboard: React.FC = () => {
           </div>
         ) : (
           <div className="py-2 md:py-4">
-            <TranscriptionCard result={result} audioUrl={audioUrl} originalFileName={originalFile?.name} originalFile={originalFile} onRestart={restartSession} />
+            <TranscriptionCard result={result} audioUrl={audioUrl} originalFileName={originalFile?.name} originalFile={originalFile} onRestart={restartSession} processingTimeTaken={processingTimeTaken} />
           </div>
         )}
       </main>

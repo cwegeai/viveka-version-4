@@ -1,471 +1,3 @@
-/**
-import React, { useState } from 'react';
-import { TranscriptionResult } from '../types';
-import { jsPDF } from 'jspdf';
-import { uploadToMinio } from '../services/minio.service';
-import { useRef } from "react";
-import { useReactToPrint } from "react-to-print";
-
-
-interface Props {
-    result: TranscriptionResult;
-    audioUrl?: string;
-    originalFileName?: string;
-    originalFile?: File;
-}
-
-const s = (val: any): string => val?.toString() || "";
-
-const FONT_LIST = [
-    { name: "Latin", style: "normal", file: "NotoSans-Regular.ttf" },
-    { name: "Malayalam", style: "normal", file: "NotoSansMalayalam-Regular.ttf" },
-    { name: "Devanagari", style: "normal", file: "NotoSans-Regular.ttf" },
-    { name: "Oriya", style: "normal", file: "NotoSansOriya-Regular.ttf" },
-    { name: "English", style: "normal", file: "NotoSans-Regular.ttf" },
-    { name: "Tamil", style: "normal", file: "NotoSans-Regular.ttf" },
-];
-
-
-let fontCache: Record<string, string> = {};
-
-function arrayBufferToBase64(buffer: ArrayBuffer) {
-    let binary = "";
-    const bytes = new Uint8Array(buffer);
-    for (let i = 0; i < bytes.byteLength; i++) {
-        binary += String.fromCharCode(bytes[i]);
-    }
-    return window.btoa(binary);
-}
-
-function detectFontFamily(text: string): string {
-    if (!text) return 'Latin';
-    if (/[\u0D00-\u0D7F]/.test(text)) return 'Malayalam';
-    if (/[\u0900-\u097F]/.test(text)) return 'Devanagari';
-    if (/[\u0B00-\u0B7F]/.test(text)) return 'Oriya';
-    if (/[\u0B80-\u0BFF]/.test(text)) return 'Tamil';
-    if (/[\u0C00-\u0C7F]/.test(text)) return 'Telugu';
-    if (/[\u0C80-\u0CFF]/.test(text)) return 'Latin'; //kannada
-    if (/[\u0600-\u06FF]/.test(text)) return 'Latin'; //Arabic
-    return 'Latin';
-}
-
-function formatTimestamp(ts: string): string {
-  if (!ts) return "00:00";
-
-  // If already MM:SS → keep it
-  if (/^\d{2}:\d{2}$/.test(ts)) {
-    return ts;
-  }
-
-  // If seconds only (e.g. "10")
-  if (/^\d+$/.test(ts)) {
-    const sec = Number(ts);
-    const mm = Math.floor(sec / 60);
-    const ss = sec % 60;
-    return `${mm.toString().padStart(2, "0")}:${ss
-      .toString()
-      .padStart(2, "0")}`;
-  }
-
-  // Fallback
-  return ts;
-}
-
-
-const TranscriptView: React.FC<{ result: TranscriptionResult }> = ({ result }) => (
-    <div className="max-w-4xl mx-auto space-y-12 bg-white">
-        <div className="space-y-6">
-            <h3 className="text-3xl font-black text-slate-900 border-b-8 border-slate-900 pb-3 uppercase tracking-tighter">Executive Synthesis</h3>
-            <div className="space-y-8 text-xl leading-relaxed text-slate-800 font-serif text-justify">
-                {result.executiveSynthesis?.map((chunk, i) => (
-                    <div key={i} className="relative">
-                        <span className="font-black text-slate-900 bg-slate-100 px-3 py-1 rounded-lg text-sm mr-2 align-middle">
-                            Chunk {chunk.chunk_id}
-                        </span>
-                        <span className="align-middle">{chunk.text}</span>
-                    </div>
-                ))}
-            </div>
-        </div>
-        <div className="pt-10 space-y-12">
-            <div className="flex items-end justify-between border-b-8 border-slate-900 pb-3">
-                <h3 className="text-3xl font-black text-slate-900 uppercase tracking-tighter">Verbatim Record</h3>
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.5em] pb-1">Zero-Loss Sync v8.0</span>
-            </div>
-            <div className="space-y-16">
-                {result.turns.map((turn, idx) => (
-                    <div key={idx} className="space-y-6 group relative">
-                        <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-100 transition-all group-hover:bg-slate-100/50">
-                            <div className="flex items-center gap-2">
-                                <span className="font-black text-slate-900 uppercase text-base tracking-tight">{s(turn.speaker)}</span>
-                                <span className="text-slate-300">•</span>
-                                <span className="text-xs font-black uppercase tracking-[0.2em] text-violet-600">MU {s(turn.mu_id)}</span>
-                            </div>
-                            <div className="ml-auto flex items-center gap-2">
-                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Timeline Sync</span>
-                                <span className="text-sm bg-slate-900 text-white px-4 py-1.5 rounded-xl font-mono font-bold shadow-lg shadow-slate-200">
-                                    {formatTimestamp(turn.timestamp)}
-
-                                </span>
-                            </div>
-                        </div>
-                        <div className="pl-8 space-y-6 border-l-8 border-slate-50 group-hover:border-violet-200 transition-colors">                            
-                                                   
-                            {turn.transliterated && (
-                                <div className="space-y-2">
-                                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Phonetic Record</p>
-                                    <div className="text-base font-bold text-slate-400 italic tracking-tight">{s(turn.transliterated)}</div>
-                                </div>
-                            )}
-                            <div className="space-y-3 pt-4 border-t border-slate-50">
-                                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">English Analysis Tier</p>
-                                <div className="text-2xl text-slate-700 font-serif leading-relaxed italic">"{s(turn.translated)}"</div>
-                            </div>
-                        </div>
-                    </div>
-                ))}
-            </div>
-        </div>
-    </div>
-);
-
-const ArtifactsView: React.FC<{ result: TranscriptionResult }> = ({ result }) => (
-    <div className="max-w-4xl mx-auto space-y-16">
-        <section className="space-y-6">
-            <h3 className="text-3xl font-black text-slate-900 border-b-8 border-slate-900 pb-3 uppercase tracking-tighter">Artifact 1: Evidence Matrix</h3>
-            <div className="grid grid-cols-1 gap-6">
-                {result.artifact1_evidence?.map((row, i) => (
-                    <div key={i} className="bg-white border-2 border-slate-100 p-8 rounded-3xl shadow-sm">
-                        <div className="flex gap-4 mb-4">
-                            <span className="bg-violet-100 text-violet-700 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-wider">{row.dimension}</span>
-                            <span className="bg-amber-100 text-amber-700 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-wider">{row.domain}</span>
-                        </div>
-                        <p className="text-2xl font-serif italic text-slate-800 leading-relaxed mb-6">"{row.evidence}"</p>
-                        <div className="bg-slate-50 p-6 rounded-2xl">
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Systemic Reasoning</p>
-                            <p className="text-base text-slate-600 font-medium">{row.reasoning}</p>
-                        </div>
-                    </div>
-                ))}
-            </div>
-        </section>
-
-        <section className="space-y-6">
-            <h3 className="text-3xl font-black text-slate-900 border-b-8 border-slate-900 pb-3 uppercase tracking-tighter">Artifact 2: Context Matrix</h3>
-            <div className="overflow-hidden rounded-3xl border-2 border-slate-100 shadow-sm">
-                <table className="w-full text-left border-collapse">
-                    <thead className="bg-slate-900 text-white text-[10px] font-black uppercase tracking-[0.2em]">
-                        <tr>
-                            <th className="p-6">Context Level</th>
-                            <th className="p-6">Domain</th>
-                            <th className="p-6">Key Finding</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                        {result.artifact2_context?.map((row, i) => (
-                            <tr key={i} className="hover:bg-slate-50 transition-colors">
-                                <td className="p-6 font-black text-slate-900 text-lg">{row.contextLevel}</td>
-                                <td className="p-6 font-bold text-violet-600">{row.domain}</td>
-                                <td className="p-6 text-slate-600 font-medium italic">{row.finding}</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-        </section>
-
-        <div className="grid grid-cols-1 gap-12">
-            <section className="space-y-6">
-                <h3 className="text-3xl font-black text-slate-900 border-b-8 border-slate-900 pb-3 uppercase tracking-tighter">Artifact 3: Mechanism Chains</h3>
-                <div className="space-y-6">
-                    {result.artifact3_chains?.map((chain, i) => (
-                        <div key={i} className="flex items-start gap-8 bg-slate-900 text-white p-10 rounded-[3rem] shadow-2xl relative overflow-hidden">
-                            <div className="absolute top-0 right-0 p-8 opacity-10">
-                                <svg className="w-24 h-24" fill="currentColor" viewBox="0 0 24 24"><path d="M13 3l-2 3H2v15h19V3h-8zm0 5h6v11H4V8h7l2-3z" /></svg>
-                            </div>
-                            <div className="w-20 h-20 bg-violet-600 rounded-2xl flex items-center justify-center shrink-0 text-3xl font-black shadow-lg">{chain.chain_id}</div>
-                            <div className="space-y-6">
-                                <div>
-                                    <p className="text-[10px] font-black uppercase tracking-[0.4em] text-violet-400 mb-2">Systemic Pathway</p>
-                                    <p className="text-3xl font-bold tracking-tight">{chain.pathway}</p>
-                                </div>
-                                <div className="h-px bg-white/10 w-full"></div>
-                                <div>
-                                    <p className="text-[10px] font-black uppercase tracking-[0.4em] text-amber-400 mb-2">Impact Synthesis</p>
-                                    <p className="text-xl text-slate-300 italic leading-relaxed">{chain.impacts}</p>
-                                </div>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </section>
-
-            <section className="space-y-6">
-                <h3 className="text-3xl font-black text-slate-900 border-b-8 border-slate-900 pb-3 uppercase tracking-tighter">Artifact 5: Vulnerability Hotspots</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    {result.artifact5_hotspots?.map((item, i) => (
-                        <div key={i} className="bg-rose-50 border-2 border-rose-100 p-10 rounded-[3rem] relative overflow-hidden">
-                            <div className="bg-rose-600 w-1.5 h-12 absolute left-0 top-12 rounded-r-full"></div>
-                            <p className="text-[11px] font-black uppercase tracking-[0.4em] text-rose-600 mb-3">Vulnerable Hotspot</p>
-                            <p className="text-3xl font-black text-slate-900 mb-6">{item.vulnerable}</p>
-                            <div className="bg-white/60 p-6 rounded-2xl border border-rose-100 shadow-inner">
-                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Causal Drivers</p>
-                                <p className="text-lg text-slate-600 font-medium leading-snug">{item.drivers}</p>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </section>
-        </div>
-    </div>
-);
-
-export const TranscriptionCard: React.FC<Props> = ({ result, originalFileName }) => {
-    const [activeTab, setActiveTab] = useState<'transcript' | 'artifacts'>('transcript');
-    const [isExporting, setIsExporting] = useState(false);
-
-    const printRef = useRef<HTMLDivElement>(null);
-
-const handlePrint = useReactToPrint({
-  contentRef: printRef,
-  documentTitle: `Viveka_Dossier_${Date.now()}`,
-});
-
-
-
-    
-
-    const generatePDF = async () => {
-        setIsExporting(true);
-        const folderPath = "/fonts/";
-        const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
-
-        try {
-            const neededFonts = new Set(['Latin']);
-            result.turns.forEach(t => neededFonts.add(detectFontFamily(t.original)));
-
-            const loadPromises = FONT_LIST.filter(f => neededFonts.has(f.name)).map(async (fontInfo) => {
-                let base64Data = fontCache[fontInfo.name];
-                if (!base64Data) {
-                    const response = await fetch(`${folderPath}${fontInfo.file}`);
-                    if (!response.ok) return;
-                    const arrayBuffer = await response.arrayBuffer();
-                    base64Data = arrayBufferToBase64(arrayBuffer);
-                    fontCache[fontInfo.name] = base64Data;
-                }
-                doc.addFileToVFS(fontInfo.file, base64Data);
-                doc.addFont(fontInfo.file, fontInfo.name, "normal");
-            });
-
-            await Promise.all(loadPromises);
-
-            const margin = 20;
-            const pageWidth = doc.internal.pageSize.getWidth();
-            const contentWidth = pageWidth - (margin * 2);
-            const pageHeight = doc.internal.pageSize.getHeight();
-            let y = 25;
-
-            const checkPageBreak = (needed: number) => {
-                if (y + needed > pageHeight - 20) {
-                    doc.addPage();
-                    y = 20;
-                }
-            };
-
-            const addWrappedText = (text: string, fontSize: number, fontName: string = "Latin", style: string = 'normal', color: [number, number, number] = [30, 41, 59], indent: number = 0) => {
-                doc.setFont(fontName, style);
-                doc.setFontSize(fontSize);
-                doc.setTextColor(color[0], color[1], color[2]);
-                const lines: string[] = doc.splitTextToSize(text || "", contentWidth - indent);
-                const lineHeight = fontSize * 0.65;
-                lines.forEach(line => {
-                    checkPageBreak(lineHeight);
-                    doc.text(line, margin + indent, y);
-                    y += lineHeight;
-                });
-                y += 2;
-            };
-
-            // Header
-            doc.setFillColor(0, 0, 0); // pure black
-doc.rect(margin, y, contentWidth, 16, 'F');
-
-doc.setTextColor(255, 255, 255);
-doc.setFont("Latin", "bold");
-doc.setFontSize(14);
-doc.text(
-  "VIVEKA RESEARCH DOSSIER - VERBATIM SYNTHESIS",
-  margin + contentWidth / 2,
-  y + 11,
-  { align: "center" }
-);
-
-y += 22;
-
-
-
-            doc.setTextColor(100, 116, 139);
-            doc.text(`FILE: ${originalFileName || "Session_Archive"}`, margin, y);
-            doc.text(`SYNCED: ${new Date().toLocaleString()}`, margin, y + 4);
-            y += 15;
-
-            // Executive Synthesis
-            addWrappedText("EXECUTIVE SYNTHESIS", 12, "Latin", 'bold', [15, 23, 42]);
-            result.executiveSynthesis?.forEach(chunk => {
-                addWrappedText(`[Chunk ${chunk.chunk_id}] ${chunk.text}`, 10, "Latin", 'normal', [71, 85, 105]);
-                y += 4;
-            });
-
-            y += 10;
-
-            // Verbatim Record
-            addWrappedText("VERBATIM RECORD", 12, "Latin", 'bold', [15, 23, 42]);
-            result.turns?.forEach((turn) => {
-                checkPageBreak(40);
-                doc.setFillColor(248, 250, 252);
-                doc.rect(margin, y, contentWidth, 10, 'F');
-                addWrappedText(
-  `${turn.speaker.toUpperCase()} - MU ${turn.mu_id}  ${formatTimestamp(turn.timestamp)}`,
-  9,
-  "Latin",
-  'bold',
-  [15, 23, 42],
-  3
-);
-
-                y += 2;
-
-                addWrappedText(`TRANSLITERATION RECORD:\n${turn.transliterated}`, 10, "Latin",'normal',[71, 85, 105]);
-
-                if (turn.translated) {
-                    addWrappedText(`Analysis: ${turn.translated}`, 10, "Latin", 'italic', [51, 65, 85], 5);
-                }
-                y += 5;
-            });
-
-            // 4. Artifacts Sections
-            doc.addPage();
-            y = 20;
-            addWrappedText("QUALITATIVE MAPPING ARTIFACTS", 14, "Latin", 'bold', [15, 23, 42]);
-            y += 10;
-
-            // Artifact 1: Evidence Matrix
-            addWrappedText("ARTIFACT 1: EVIDENCE MATRIX", 11, "Latin", 'bold', [124, 58, 237]);
-            result.artifact1_evidence?.forEach(row => {
-                checkPageBreak(40);
-                y += 5;
-                doc.setFont("Latin", "bold");
-                doc.setFontSize(8);
-                doc.setTextColor(124, 58, 237);
-                doc.text(`${row.dimension} | ${row.domain}`, margin + 5, y);
-                y += 6;
-                addWrappedText(`Evidence: "${row.evidence}"`, 9, detectFontFamily(row.evidence), 'italic', [30, 41, 59], 5);
-                addWrappedText(`Reasoning: ${row.reasoning}`, 8, detectFontFamily(row.reasoning), 'normal', [100, 116, 139], 5);
-            });
-
-            // Artifact 2: Context Matrix
-            // Artifact 2: Context Matrix
-y += 10;
-addWrappedText("ARTIFACT 2: CONTEXT MATRIX", 12, "Latin", 'bold', [15, 23, 42]);
-y += 4;
-
-result.artifact2_context?.forEach(row => {
-    checkPageBreak(35);
-
-    // Row header
-    doc.setFont("Latin", "bold");
-    doc.setFontSize(9);
-    doc.setTextColor(15, 23, 42);
-    doc.text(`${row.contextLevel} | ${row.domain}`, margin + 5, y);
-
-    y += 6; // 
-    // Finding text
-    addWrappedText(
-        row.finding,
-        9,
-        detectFontFamily(row.finding),
-        'normal',
-        [71, 85, 105],
-        5
-    );
-
-    y += 6; // 🔑 space between rows
-});
-
-
-            // Artifact 3: Mechanism Chains
-            y += 10;
-            addWrappedText("ARTIFACT 3: MECHANISM CHAINS", 11, "Latin", 'bold', [124, 58, 237]);
-            result.artifact3_chains?.forEach(chain => {
-                checkPageBreak(30);
-                doc.setFillColor(15, 23, 42);
-                doc.rect(margin, y, 12, 12, 'F');
-                doc.setTextColor(255, 255, 255);
-                doc.setFontSize(10);
-                doc.text(s(chain?.chain_id), margin + 4, y + 8);
-                addWrappedText(chain?.pathway, 10, detectFontFamily(chain?.pathway), 'bold', [15, 23, 42], 20);
-                addWrappedText(chain?.impacts, 9, detectFontFamily(chain?.impacts), 'italic', [100, 116, 139], 20);
-            });
-
-            // Artifact 5: Vulnerability Hotspots
-            y += 10;
-            addWrappedText("ARTIFACT 5: VULNERABILITY HOTSPOTS", 12, "Latin", 'bold', [225, 29, 72]);
-            result.artifact5_hotspots?.forEach(item => {
-                checkPageBreak(30);
-                addWrappedText(item.vulnerable, 10, detectFontFamily(item.vulnerable), 'bold', [15, 23, 42], 5);
-                addWrappedText(`Drivers: ${item.drivers}`, 9, detectFontFamily(item.drivers), 'normal', [153, 27, 27], 5);
-            });
-
-            const fileName = `Viveka_Dossier_${Date.now()}.pdf`;
-            doc.save(fileName);
-            const blob = doc.output('blob');
-            try {
-              await uploadToMinio(new File([blob], fileName, { type: 'application/pdf' }));
-            } catch (error) {
-              console.warn('Skipping dossier sync upload:', error);
-            }
-
-        } catch (error: any) {
-            console.error("PDF Export Failed:", error);
-        } finally {
-            setIsExporting(false);
-        }
-    };
-
-    return (
-        <div className="space-y-8 animate-fade-in pb-20">
-            <div className="flex flex-col md:flex-row justify-between items-center gap-6 bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100">
-                <div className="flex items-center gap-5">
-                    <div className="p-4 bg-violet-100 rounded-3xl text-violet-600 shadow-inner">
-                        <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                    </div>
-                    <div>
-                        <h2 className="text-2xl font-black text-slate-900 tracking-tight leading-tight">{originalFileName || 'Research Archive'}</h2>
-                    </div>
-                </div>
-                <div className="flex items-center gap-4">
-                    <div className="flex p-1.5 bg-slate-100 rounded-2xl shadow-inner">
-                        <button onClick={() => setActiveTab('transcript')} className={`px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'transcript' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400'}`}>Transcript</button>
-                        <button onClick={() => setActiveTab('artifacts')} className={`px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'artifacts' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400'}`}>Artifacts</button>
-                    </div>
-                    <button onClick={generatePDF} disabled={isExporting} className="p-4 rounded-2xl bg-slate-900 text-white flex items-center gap-2">
-                        {isExporting ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <span className="text-[10px] font-black uppercase tracking-widest">Export Dossier</span>}
-                    </button>
-                </div>
-            </div>
-            <div 
-            ref={printRef}
-            className="bg-white rounded-[4.5rem] shadow-2xl p-12 md:p-24 relative min-h-[600px]">
-                {activeTab === 'transcript' ? <TranscriptView result={result} /> : <ArtifactsView result={result} />}
-            </div>
-        </div>
-    );
-};
-
-
-**/
-
-
 import React, { useState } from 'react';
 import { TranscriptionResult } from '../types';
 import { jsPDF } from 'jspdf';
@@ -478,7 +10,8 @@ interface Props {
   audioUrl?: string;
   originalFileName?: string;
   originalFile?: File;
-  onRestart: () => void; 
+  onRestart: () => void;
+  processingTimeTaken?: number | null;
 }
 
 const s = (val: any): string => val?.toString() || "";
@@ -555,93 +88,81 @@ const TranscriptView: React.FC<{ result: TranscriptionResult }> = ({ result }) =
   </div>
 );
 
+const downloadJson = (data: unknown, filename: string) => {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+};
+
+const downloadCsv = (turns: TranscriptionResult['turns'], filename: string) => {
+  const headers = ['#', 'Speaker', 'Timestamp', 'Duration(s)', 'Original Script', 'Transliteration', 'English Translation', 'Language', 'Confidence'];
+  const escape = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const rows = turns.map((t, i) => [
+    i + 1,
+    escape(t.speaker),
+    escape(t.timestamp),
+    t.duration_seconds?.toFixed(1) ?? '',
+    escape(t.original),
+    escape(t.transliterated),
+    escape(t.translated),
+    escape(t.language),
+    t.confidence != null ? (t.confidence * 100).toFixed(1) + '%' : '',
+  ].join(','));
+  const csv = [headers.join(','), ...rows].join('\n');
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+};
+
+const DownloadBtn: React.FC<{ onClick: () => void; label: string }> = ({ onClick, label }) => (
+  <button
+    onClick={onClick}
+    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest hover:bg-violet-600 transition-all shadow"
+  >
+    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+    </svg>
+    {label}
+  </button>
+);
+
+const ArtifactHeader: React.FC<{ title: string; onDownload: () => void }> = ({ title, onDownload }) => (
+  <div className="flex items-end justify-between border-b-8 border-slate-900 pb-3">
+    <h3 className="text-3xl font-black text-slate-900 uppercase tracking-tighter">{title}</h3>
+    <DownloadBtn onClick={onDownload} label="Download JSON" />
+  </div>
+);
+
+const EmptyState: React.FC<{ label: string }> = ({ label }) => (
+  <div className="py-8 text-center text-slate-400 text-sm italic bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+    {label}
+  </div>
+);
+
 const ArtifactsView: React.FC<{ result: TranscriptionResult }> = ({ result }) => (
-  <div className="max-w-4xl mx-auto space-y-16">
-    <section className="space-y-6">
-       <h3 className="text-3xl font-black text-slate-900 border-b-8 border-slate-900 pb-3 uppercase tracking-tighter">Artifact 1: Evidence Matrix</h3>
-       <div className="grid grid-cols-1 gap-6">
-         {result.artifact1_evidence?.map((row, i) => (
-           <div key={i} className="bg-white border-2 border-slate-100 p-8 rounded-3xl shadow-sm">
-             <div className="flex gap-4 mb-4">
-               <span className="bg-violet-100 text-violet-700 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-wider">{row.dimension}</span>
-               <span className="bg-amber-100 text-amber-700 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-wider">{row.domain}</span>
-             </div>
-             <p className="text-2xl font-serif italic text-slate-800 leading-relaxed mb-6">"{row.evidence}"</p>
-             <div className="bg-slate-50 p-6 rounded-2xl">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Systemic Reasoning</p>
-                <p className="text-base text-slate-600 font-medium">{row.reasoning}</p>
-             </div>
-           </div>
-         ))}
-       </div>
-    </section>
-
-    <section className="space-y-6">
-       <h3 className="text-3xl font-black text-slate-900 border-b-8 border-slate-900 pb-3 uppercase tracking-tighter">Artifact 2: Context Matrix</h3>
-       <div className="overflow-hidden rounded-3xl border-2 border-slate-100 shadow-sm">
-         <table className="w-full text-left border-collapse">
-           <thead className="bg-slate-900 text-white text-[10px] font-black uppercase tracking-[0.2em]">
-             <tr>
-               <th className="p-6">Context Level</th>
-               <th className="p-6">Domain</th>
-               <th className="p-6">Key Finding</th>
-             </tr>
-           </thead>
-           <tbody className="divide-y divide-slate-100">
-             {result.artifact2_context?.map((row, i) => (
-               <tr key={i} className="hover:bg-slate-50 transition-colors">
-                 <td className="p-6 font-black text-slate-900 text-lg">{row.contextLevel}</td>
-                 <td className="p-6 font-bold text-violet-600">{row.domain}</td>
-                 <td className="p-6 text-slate-600 font-medium italic">{row.finding}</td>
-               </tr>
-             ))}
-           </tbody>
-         </table>
-       </div>
-    </section>
-
-    <div className="grid grid-cols-1 gap-12">
-      <section className="space-y-6">
-         <h3 className="text-3xl font-black text-slate-900 border-b-8 border-slate-900 pb-3 uppercase tracking-tighter">Artifact 3: Mechanism Chains</h3>
-         <div className="space-y-6">
-           {result.artifact3_chains?.map((chain, i) => (
-             <div key={i} className="flex items-start gap-8 bg-slate-900 text-white p-10 rounded-[3rem] shadow-2xl relative overflow-hidden">
-               <div className="absolute top-0 right-0 p-8 opacity-10">
-                 <svg className="w-24 h-24" fill="currentColor" viewBox="0 0 24 24"><path d="M13 3l-2 3H2v15h19V3h-8zm0 5h6v11H4V8h7l2-3z"/></svg>
-               </div>
-               <div className="w-20 h-20 bg-violet-600 rounded-2xl flex items-center justify-center shrink-0 text-3xl font-black shadow-lg">{chain.chain_id}</div>
-               <div className="space-y-6">
-                 <div>
-                   <p className="text-[10px] font-black uppercase tracking-[0.4em] text-violet-400 mb-2">Systemic Pathway</p>
-                   <p className="text-3xl font-bold tracking-tight">{chain.pathway}</p>
-                 </div>
-                 <div className="h-px bg-white/10 w-full"></div>
-                 <div>
-                   <p className="text-[10px] font-black uppercase tracking-[0.4em] text-amber-400 mb-2">Impact Synthesis</p>
-                   <p className="text-xl text-slate-300 italic leading-relaxed">{chain.impacts}</p>
-                 </div>
-               </div>
-             </div>
-           ))}
-         </div>
-      </section>
-
-      <section className="space-y-6">
-         <h3 className="text-3xl font-black text-slate-900 border-b-8 border-slate-900 pb-3 uppercase tracking-tighter">Artifact 4: Vulnerability Hotspots</h3>
-         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-           {result.artifact5_hotspots?.map((item, i) => (
-             <div key={i} className="bg-rose-50 border-2 border-rose-100 p-10 rounded-[3rem] relative overflow-hidden">
-               <div className="bg-rose-600 w-1.5 h-12 absolute left-0 top-12 rounded-r-full"></div>
-               <p className="text-[11px] font-black uppercase tracking-[0.4em] text-rose-600 mb-3">Vulnerable Hotspot</p>
-               <p className="text-3xl font-black text-slate-900 mb-6">{item.vulnerable}</p>
-               <div className="bg-white/60 p-6 rounded-2xl border border-rose-100 shadow-inner">
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Causal Drivers</p>
-                  <p className="text-lg text-slate-600 font-medium leading-snug">{item.drivers}</p>
-               </div>
-             </div>
-           ))}
-         </div>
-      </section>
+  <div className="max-w-4xl mx-auto flex flex-col items-center justify-center py-20 px-8">
+    <div className="w-20 h-20 bg-violet-100 rounded-3xl flex items-center justify-center mb-8 shadow-inner">
+      <svg className="w-10 h-10 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+      </svg>
+    </div>
+    <h3 className="text-3xl font-black text-slate-900 uppercase tracking-tighter mb-3">AWESOME Artifacts</h3>
+    <div className="flex items-center gap-2 mb-6">
+      <span className="px-4 py-1.5 bg-amber-100 text-amber-700 text-[10px] font-black uppercase tracking-widest rounded-full border border-amber-200">
+        Coming Soon
+      </span>
+    </div>
+    <p className="text-slate-500 text-center max-w-md leading-relaxed text-sm">
+      Evidence Matrix, Context Matrix, Mechanism Chains, Systems Link Map, Vulnerability Hotspots, and SMART Strategies will be available in a future update.
+    </p>
+    <div className="mt-10 grid grid-cols-2 md:grid-cols-3 gap-3 w-full max-w-lg">
+      {['Evidence Matrix', 'Context Matrix', 'Mechanism Chains', 'Link Map', 'Hotspots', 'Strategies'].map((label) => (
+        <div key={label} className="bg-slate-50 border border-slate-100 rounded-2xl p-4 text-center opacity-50">
+          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{label}</p>
+        </div>
+      ))}
     </div>
   </div>
 );
@@ -737,7 +258,7 @@ const normalizeSpeakerLabel = (speaker: string) => {
   return trimmed;
 };
 
-export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalFileName, onRestart }) => {
+export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalFileName, onRestart, processingTimeTaken }) => {
   const [activeTab, setActiveTab] = useState<'transcript' | 'artifacts'>('transcript');
   const [isExporting, setIsExporting] = useState(false);
   const [isSendingEmail, setIsSendingEmail] = useState(false);
@@ -1213,292 +734,6 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
         hRule(C_BORDER, contentWidth, 0.25);
       });
 
-      addPageFooter();
-
-      // ══════════════════════════════════════════════════════════════════════
-      // ARTIFACT 1 — EVIDENCE MATRIX
-      // ══════════════════════════════════════════════════════════════════════
-      pdf.addPage(); pageNum++; totalPages++;
-      y = MARGIN;
-      pdf.setFillColor(...C_VIOLET);
-      pdf.rect(0, 0, pageWidth, 1.5, 'F');
-
-      pdf.setFont('Latin', 'bold');
-      pdf.setFontSize(9);
-      pdf.setTextColor(...C_MUTED);
-      pdf.text('ARTIFACT 1 — EVIDENCE MATRIX', MARGIN, y + 6);
-      y += 14;
-      hRule(C_BORDER);
-
-      result.artifact1_evidence?.forEach(row => {
-        // Dimension · Domain tag (navy pill)
-        const tagLabel = `${(row.dimension || '').toUpperCase()}  ·  ${(row.domain || '').toUpperCase()}`;
-        const tagW = pdf.setFont('Latin', 'bold') && pdf.setFontSize(7) && pdf.getTextWidth(tagLabel) + 8;
-        const tagH = 5.5;
-        checkBreak(tagH + 4);
-        pdf.setFillColor(...C_NAVY);
-        pdf.roundedRect(MARGIN, y, tagW as unknown as number, tagH, 1.5, 1.5, 'F');
-        pdf.setTextColor(...C_WHITE);
-        pdf.setFont('Latin', 'bold');
-        pdf.setFontSize(7);
-        pdf.text(tagLabel, MARGIN + 4, y + tagH - 1.8);
-        y += tagH + 4;
-
-        // Evidence quote
-        const evidenceText = `"${row.evidence || ''}"`;
-        checkBreak(measureText(evidenceText, 10, 0) + 4);
-        addText(evidenceText, 10, 'italic', C_BODY, 0, detectFontFamily(row.evidence), 3);
-
-        // Systemic reasoning label
-        pdf.setFont('Latin', 'bold');
-        pdf.setFontSize(6.5);
-        pdf.setTextColor(...C_MUTED);
-        checkBreak(5);
-        pdf.text('SYSTEMIC REASONING', MARGIN, y);
-        y += 5;
-
-        // Reasoning body
-        addText(row.reasoning || '', 8.5, 'normal', C_TAG_TEXT, 0, 'Latin', 3);
-
-        hRule([241, 245, 249]);
-      });
-
-      addPageFooter();
-
-      // ══════════════════════════════════════════════════════════════════════
-      // ARTIFACT 2 — CONTEXT MATRIX
-      // ══════════════════════════════════════════════════════════════════════
-      pdf.addPage(); pageNum++; totalPages++;
-      y = MARGIN;
-      pdf.setFillColor(...C_VIOLET);
-      pdf.rect(0, 0, pageWidth, 1.5, 'F');
-
-      pdf.setFont('Latin', 'bold');
-      pdf.setFontSize(9);
-      pdf.setTextColor(...C_MUTED);
-      pdf.text('ARTIFACT 2 — CONTEXT MATRIX', MARGIN, y + 6);
-      y += 14;
-      hRule(C_BORDER);
-
-      result.artifact2_context?.forEach(row => {
-        const tagLabel = `${(row.contextLevel || '').toUpperCase()}  ·  ${(row.domain || '').toUpperCase()}`;
-        pdf.setFont('Latin', 'bold');
-        pdf.setFontSize(7);
-        const tagW2 = pdf.getTextWidth(tagLabel) + 8;
-        checkBreak(5.5 + 4);
-        pdf.setFillColor(...C_NAVY);
-        pdf.roundedRect(MARGIN, y, tagW2, 5.5, 1.5, 1.5, 'F');
-        pdf.setTextColor(...C_WHITE);
-        pdf.text(tagLabel, MARGIN + 4, y + 3.7);
-        y += 9;
-        addText(row.finding || '', 9.5, 'normal', C_BODY, 0, 'Latin', 3);
-        hRule([241, 245, 249]);
-      });
-
-      addPageFooter();
-
-      // ══════════════════════════════════════════════════════════════════════
-      // ARTIFACT 3 — MECHANISM CHAINS
-      // ══════════════════════════════════════════════════════════════════════
-      pdf.addPage(); pageNum++; totalPages++;
-      y = MARGIN;
-      pdf.setFillColor(...C_VIOLET);
-      pdf.rect(0, 0, pageWidth, 1.5, 'F');
-
-      pdf.setFont('Latin', 'bold');
-      pdf.setFontSize(9);
-      pdf.setTextColor(...C_MUTED);
-      pdf.text('ARTIFACT 3 — MECHANISM CHAINS', MARGIN, y + 6);
-      y += 14;
-      hRule(C_BORDER);
-
-      result.artifact3_chains?.forEach((chain, idx) => {
-        const chainLabel = chain?.chain_id || `Chain ${idx + 1}`;
-        const pathH = measureText(chain?.pathway || '', 10, 0);
-        const impactH = measureText(chain?.impacts || '', 9, 0);
-        checkBreak(8 + pathH + 6 + impactH + 14);
-
-        // Chain label
-        pdf.setFont('Latin', 'bold');
-        pdf.setFontSize(8);
-        pdf.setTextColor(...C_VIOLET);
-        pdf.text(chainLabel.toUpperCase(), MARGIN, y + 5);
-        y += 8;
-
-        // Systemic pathway label
-        pdf.setFont('Latin', 'bold');
-        pdf.setFontSize(6.5);
-        pdf.setTextColor(...C_MUTED);
-        pdf.text('SYSTEMIC PATHWAY', MARGIN, y);
-        y += 5;
-        addText(chain?.pathway || '', 10, 'normal', C_BODY, 0, detectFontFamily(chain?.pathway || ''), 4);
-
-        // Impact synthesis label
-        const impactLabel = 'IMPACT SYNTHESIS';
-        pdf.setFont('Latin', 'bold');
-        pdf.setFontSize(6.5);
-        pdf.setTextColor(...C_MUTED);
-        pdf.text(impactLabel, MARGIN, y);
-        y += 5;
-
-        // Impact pill
-        const impactText = chain?.impacts || '';
-        const impactLineW = pdf.getTextWidth(impactText);
-        if (impactLineW < contentWidth - 10) {
-          // Short enough for a pill
-          const pillW2 = Math.min(impactLineW + 10, contentWidth);
-          const pillH2 = 7;
-          pdf.setFillColor(...C_BG_LIGHT);
-          pdf.setDrawColor(...C_BORDER);
-          pdf.setLineWidth(0.3);
-          pdf.roundedRect(MARGIN, y, pillW2, pillH2, 2, 2, 'FD');
-          pdf.setFont('Latin', 'bold');
-          pdf.setFontSize(8);
-          pdf.setTextColor(...C_NAVY);
-          pdf.text(impactText, MARGIN + 5, y + 4.8);
-          y += pillH2 + 3;
-        } else {
-          addText(impactText, 8.5, 'bold', C_NAVY, 0, 'Latin', 3);
-        }
-
-        hRule([241, 245, 249]);
-      });
-
-      addPageFooter();
-
-      // ══════════════════════════════════════════════════════════════════════
-      // ARTIFACT 4 — LINK MAP (Systems View)
-      // ══════════════════════════════════════════════════════════════════════
-      pdf.addPage(); pageNum++; totalPages++;
-      y = MARGIN;
-      pdf.setFillColor(...C_VIOLET);
-      pdf.rect(0, 0, pageWidth, 1.5, 'F');
-
-      pdf.setFont('Latin', 'bold');
-      pdf.setFontSize(9);
-      pdf.setTextColor(...C_MUTED);
-      pdf.text('ARTIFACT 4 — LINK MAP (SYSTEMS VIEW)', MARGIN, y + 6);
-      y += 14;
-      hRule(C_BORDER);
-
-      const linkMap = result.artifact4_link_map || '';
-      if (linkMap && linkMap.trim() && linkMap !== 'Master Research Database Link Verified') {
-        // Render Mermaid source as readable text in the dossier (client-side Mermaid rendering
-        // is not available inside jsPDF; we present the diagram definition with instructions).
-        pdf.setFont('Latin', 'bold');
-        pdf.setFontSize(7.5);
-        pdf.setTextColor(...C_MUTED);
-        pdf.text('SYSTEMS DIAGRAM DEFINITION (Mermaid)', MARGIN, y);
-        y += 6;
-
-        // Parse node lines and render them legibly
-        const mermaidLines = linkMap.split(/\\n|\n/).map(l => l.trim()).filter(Boolean);
-        const diagramCardH = Math.max(30, mermaidLines.length * 5.5 + 10);
-        checkBreak(diagramCardH + 4);
-
-        pdf.setFillColor(15, 20, 35);
-        pdf.setDrawColor(...C_BORDER);
-        pdf.setLineWidth(0.3);
-        pdf.roundedRect(MARGIN, y, contentWidth, diagramCardH, 3, 3, 'F');
-
-        let dy = y + 7;
-        mermaidLines.forEach(line => {
-          if (dy + 5 > y + diagramCardH - 3) return;
-          pdf.setFont('Latin', 'normal');
-          pdf.setFontSize(7.5);
-          pdf.setTextColor(180, 220, 255);
-          const displayLine = pdf.splitTextToSize(line, contentWidth - 10)[0] || line;
-          pdf.text(displayLine, MARGIN + 5, dy);
-          dy += 5.5;
-        });
-        y += diagramCardH + 5;
-
-        // Relationship narrative below the code block
-        pdf.setFont('Latin', 'bold');
-        pdf.setFontSize(7.5);
-        pdf.setTextColor(...C_MUTED);
-        checkBreak(8);
-        pdf.text('SYSTEMS NARRATIVE', MARGIN, y);
-        y += 6;
-
-        // Parse edges from Mermaid syntax to derive a readable narrative
-        const edgePattern = /\[([^\]]+)\]\s*--?>?\s*\[([^\]]+)\]/g;
-        const narrativeLines: string[] = [];
-        let match;
-        let tempLinkMap = linkMap;
-        while ((match = edgePattern.exec(tempLinkMap)) !== null) {
-          narrativeLines.push(`• ${match[1]} → ${match[2]}`);
-          if (narrativeLines.length >= 10) break;
-        }
-
-        if (narrativeLines.length > 0) {
-          narrativeLines.forEach(nl => {
-            addText(nl, 9, 'normal', C_BODY, 0, 'Latin', 1.5);
-          });
-        } else {
-          // Fallback: just render the raw text readably
-          addText(linkMap.replace(/\\n/g, ' | '), 9, 'normal', C_BODY, 0, 'Latin', 3);
-        }
-      } else {
-        // Fallback when no Mermaid was generated
-        pdf.setFont('Latin', 'italic');
-        pdf.setFontSize(9);
-        pdf.setTextColor(...C_MUTED);
-        pdf.text('No link map data was generated for this session.', MARGIN, y + 8);
-        y += 18;
-      }
-
-      // Hub variables note
-      checkBreak(14);
-      pdf.setFont('Latin', 'bold');
-      pdf.setFontSize(7.5);
-      pdf.setTextColor(...C_MUTED);
-      pdf.text('NOTE', MARGIN, y);
-      y += 5;
-      addText(
-        'The Link Map represents the systems-level relationships between factors, constraints, interventions, '
-        + 'and impacts identified in this session. Hub variables (nodes with the most connections) are the '
-        + 'highest-leverage points for intervention. Feedback loops indicate self-reinforcing dynamics that '
-        + 'may amplify either empowerment or vulnerability over time.',
-        8.5, 'normal', C_TAG_TEXT, 0, 'Latin', 3
-      );
-
-      addPageFooter();
-
-      // ══════════════════════════════════════════════════════════════════════
-      // ARTIFACT 5 — VULNERABILITY HOTSPOTS
-      // ══════════════════════════════════════════════════════════════════════
-      pdf.addPage(); pageNum++; totalPages++;
-      y = MARGIN;
-      pdf.setFillColor(...C_VIOLET);
-      pdf.rect(0, 0, pageWidth, 1.5, 'F');
-
-      pdf.setFont('Latin', 'bold');
-      pdf.setFontSize(9);
-      pdf.setTextColor(...C_MUTED);
-      pdf.text('ARTIFACT 5 — VULNERABILITY HOTSPOTS', MARGIN, y + 6);
-      y += 14;
-      hRule(C_BORDER);
-
-      result.artifact5_hotspots?.forEach((item, idx) => {
-        // Hotspot label
-        pdf.setFont('Latin', 'bold');
-        pdf.setFontSize(7.5);
-        pdf.setTextColor(...C_MUTED);
-        pdf.text(`VULNERABLE POPULATION`, MARGIN, y);
-        y += 5;
-        addText(item.vulnerable || '', 10, 'bold', C_NAVY, 0, detectFontFamily(item.vulnerable), 4);
-
-        pdf.setFont('Latin', 'bold');
-        pdf.setFontSize(7.5);
-        pdf.setTextColor(...C_MUTED);
-        checkBreak(5);
-        pdf.text('CAUSAL DRIVERS', MARGIN, y);
-        y += 5;
-        addText(item.drivers || '', 9.5, 'normal', C_BODY, 0, 'Latin', 3);
-
-        hRule([241, 245, 249]);
-      });
 
       addPageFooter();
 
@@ -1559,6 +794,11 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
              <div className="flex items-center gap-3 mt-1">
                 <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">High-Fidelity Verbatim Sync Active</p>
+                {processingTimeTaken != null && (
+                  <span className="ml-2 px-2.5 py-0.5 bg-emerald-50 border border-emerald-200 text-emerald-700 text-[9px] font-black uppercase tracking-widest rounded-full">
+                    ⏱ {Math.floor(processingTimeTaken / 60)}m {processingTimeTaken % 60}s
+                  </span>
+                )}
              </div>
            </div>
         </div>
@@ -1589,6 +829,21 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
                </svg>
              )}
              <span className="text-[10px] font-black uppercase tracking-widest pr-2">Export Dossier</span>
+          </button>
+
+          {/* CSV transcript download */}
+          <button
+            onClick={() => {
+              const base = (originalFileName || 'transcript').replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40);
+              downloadCsv(result.turns, `${base}_transcript.csv`);
+            }}
+            title="Download transcript as CSV"
+            className="p-4 rounded-2xl transition-all shadow-xl active:scale-95 flex items-center gap-2 bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-600/20"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <span className="text-[10px] font-black uppercase tracking-widest pr-2">CSV Transcript</span>
           </button>
           <button
             onClick={sendByEmail}
