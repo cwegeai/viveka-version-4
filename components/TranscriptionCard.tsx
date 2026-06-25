@@ -4,7 +4,15 @@ import { jsPDF } from 'jspdf';
 import { uploadToMinio } from '../services/minio.service';
 import { getAccessToken, getStoredUser } from '../services/authStorage';
 import { TRANSCRIPTION_API_URL } from '../services/config';
+import {
+  Document,
+  Packer,
+  Paragraph,
+  HeadingLevel,
+  TextRun
+} from "docx";
 
+import { saveAs } from "file-saver";
 interface Props {
   result: TranscriptionResult;
   audioUrl?: string;
@@ -385,7 +393,85 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
     }
   };
 
+  const generateWord = async () => {
+    try {
+  const doc = new Document({
+    sections: [
+      {
+        children: [
+          new Paragraph({
+            text: "VIVEKA AI RESEARCH DOSSIER",
+            heading: HeadingLevel.TITLE,
+          }),
 
+          new Paragraph({
+            text: "",
+          }),
+
+          
+
+          new Paragraph({
+            text: "FULL VERBATIM RECORD",
+            heading: HeadingLevel.HEADING_1,
+          }),
+
+          ...result.turns.flatMap((turn) => [
+            new Paragraph({
+              text: turn.speaker,
+              heading: HeadingLevel.HEADING_2,
+            }),
+
+            new Paragraph({
+              children: [
+                new TextRun({
+                  text: "Original: ",
+                  bold: true,
+                }),
+                new TextRun(turn.original),
+              ],
+            }),
+
+            new Paragraph({
+              children: [
+                new TextRun({
+                  text: "Transliteration: ",
+                  bold: true,
+                }),
+                new TextRun(turn.transliterated || ""),
+              ],
+            }),
+
+            new Paragraph({
+              children: [
+                new TextRun({
+                  text: "English Translation: ",
+                  bold: true,
+                }),
+                new TextRun(turn.translated),
+              ],
+            }),
+
+            new Paragraph({
+              text: "",
+            }),
+          ]),
+        ],
+      },
+    ],
+  });
+
+  const blob = await Packer.toBlob(doc);
+
+  saveAs(
+    blob,
+    `Viveka_${(originalFileName || "Transcript").replace(/\.[^/.]+$/, "")}.docx`
+  );
+
+  } catch (error) {
+    console.error(error);
+    alert("Word generation failed.");
+  }
+  };
   const generatePDF = async () => {
     setIsExporting(true);
 
@@ -830,7 +916,29 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
              )}
              <span className="text-[10px] font-black uppercase tracking-widest pr-2">Export Dossier</span>
           </button>
+          <button
+            onClick={generateWord}
+            title="Download Word document"
+            className="p-4 rounded-2xl transition-all shadow-xl active:scale-95 flex items-center gap-2 bg-blue-600 text-white hover:bg-blue-700 shadow-blue-600/20"
+          >
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M7 3h8l5 5v13a1 1 0 01-1 1H7a2 2 0 01-2-2V5a2 2 0 012-2z"
+              />
+            </svg>
 
+            <span className="text-[10px] font-black uppercase tracking-widest pr-2">
+              WORD DOCUMENT
+            </span>
+          </button>
           {/* CSV transcript download */}
           <button
             onClick={() => {
