@@ -680,9 +680,8 @@ class GeminiArtifactService:
             return result
 
         if not include_summary:
-            result.summary = result.summary or _fallback_interview_summary(result.turns)
-            if not result.executiveSynthesis and result.summary:
-                result.executiveSynthesis = [ChunkSummary(chunk_id=1, text=result.summary)]
+            result.summary = ""
+            result.executiveSynthesis = []
             # Fast GoogleTranslator pass so the 80% partial result shows English
             fast_turns: list[TranscriptTurn] = []
             for turn in result.turns:
@@ -698,17 +697,21 @@ class GeminiArtifactService:
             return result
 
         # include_summary=True: send combined prompt for translation + summary
-        combined_turns = result.turns[:30]
-        combined_transcript = merged.transcript[:2000]
+        combined_turns = result.turns[:100]
+        combined_transcript = merged.transcript[:10000]
         combined_prompt = (
             "You are an expert translation, transliteration, and interview summarization engine. "
-            "Return only JSON with keys: turns, summary, keyPoints. "
+            "Return only JSON with keys: turns."#, summary, keyPoints. "
             "For every turn, preserve speaker, mu_id, timestamp, start_time_seconds, end_time_seconds, "
             "duration_seconds, confidence, language, and languages. "
-            "Keep original exactly as given. Set transliterated to Latin script when not already Latin. "
+            "Keep original exactly as given. "
+            "IMPORTANT: transliterated MUST contain ONLY Latin (English) characters. "
+            "Never return Hindi, Tamil, Telugu, Malayalam or any native script in transliterated. "
+            "If the original is Hindi 'वह उसका प्रशिक्षण लिए हैं ना आपने?', the transliterated value MUST be "
+            "'Wah uska prashikshan liye hain na aapne?'. "
             "Set translated to fluent English. If not English, translated must not repeat source text. "
-            "summary: 2-4 sentence English summary. "
-            "keyPoints: array of 3-5 concise English findings.\n\n"
+            #"summary: 2-4 sentence English summary. "
+            #"keyPoints: array of 3-5 concise English findings.\n\n"
             f"INPUT_JSON:\n{json.dumps({'transcript': combined_transcript, 'language': merged.language, 'languages': merged.languages, 'turns': [turn.model_dump() for turn in combined_turns]}, ensure_ascii=False)}"
         )
         try:
@@ -717,8 +720,8 @@ class GeminiArtifactService:
                 normalized_payload = _normalize_model_payload(parsed)
                 repaired_turns = [TranscriptTurn.model_validate(item) for item in normalized_payload.get("turns", [])]
                 result.turns = _merge_turn_repairs(result.turns, repaired_turns)
-                result.summary = normalized_payload.get("summary", "")
-                result.keyPoints = normalized_payload.get("keyPoints", [])
+            #    result.summary = normalized_payload.get("summary", "")
+             #   result.keyPoints = normalized_payload.get("keyPoints", [])
                 result.detected_language = merged.detected_language or merged.language
                 result.languages = merged.languages
                 result.language_metadata = merged.language_metadata
@@ -751,24 +754,24 @@ class GeminiArtifactService:
                 normalized_turns.append(turn)
         result.turns = normalized_turns
 
-        try:
-            if not result.summary:
-                result = await self._generate_interview_summary(result, merged)
-        except Exception as e:
-            logger.error(f"Interview summary generation failed: {e}", exc_info=True)
+     #   try:
+     #     if not result.summary:
+     #           result = await self._generate_interview_summary(result, merged)
+     #   except Exception as e:
+     #       logger.error(f"Interview summary generation failed: {e}", exc_info=True)
 
         # Generate per-chunk executive synthesis if not already populated
-        if not result.executiveSynthesis:
-            try:
-                result.executiveSynthesis = await self._generate_chunk_executive_synthesis(
-                    merged.chunk_results, result.turns, result.summary
-                )
-            except Exception as e:
-                logger.error(f"Chunk executive synthesis failed: {e}", exc_info=True)
-                if result.summary:
-                    result.executiveSynthesis = [ChunkSummary(chunk_id=1, text=result.summary)]
+    #    if not result.executiveSynthesis:
+    #        try:
+    #            result.executiveSynthesis = await self._generate_chunk_executive_synthesis(
+    #                merged.chunk_results, result.turns, result.summary
+    #            )
+    #        except Exception as e:
+    #            logger.error(f"Chunk executive synthesis failed: {e}", exc_info=True)
+    #            if result.summary:
+    #                result.executiveSynthesis = [ChunkSummary(chunk_id=1, text=result.summary)]
 
-        result = await self._ensure_english_summary_content(result)
+    #    result = await self._ensure_english_summary_content(result)
 
         return result
 
@@ -800,7 +803,7 @@ class GeminiArtifactService:
         return FinalResult(
             turns=base_turns,
             executiveSynthesis=[],
-            summary=_fallback_interview_summary(base_turns),
+            summary="",#_fallback_interview_summary(base_turns),
             keyPoints=[],
             detected_language=merged.detected_language or merged.language,
             languages=merged.languages,
