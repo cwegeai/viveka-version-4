@@ -13,6 +13,8 @@
   },
   "dependencies": {
     "@google/genai": "latest",
+    "docx": "^9.7.1",
+    "file-saver": "^2.0.5",
     "html2canvas": "^1.4.1",
     "jsonrepair": "^3.13.2",
     "jspdf": "^4.1.0",
@@ -22,6 +24,7 @@
     "react-router-dom": "^7.13.0"
   },
   "devDependencies": {
+    "@types/file-saver": "^2.0.7",
     "@types/node": "^25.2.3",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

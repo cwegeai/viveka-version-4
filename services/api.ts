@@ -134,7 +134,7 @@ export const api = {
   },
 
   getDashboardStats: async () => {
-    const response = await fetch(`${BASE_URL}/admin/dashboard`, {
+    const response = await fetch(`${BASE_URL}/api/admin/dashboard`, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -143,9 +143,51 @@ export const api = {
     return response.json();
   },
 
+  getAdminUsers: async (limit = 200, offset = 0) => {
+    const response = await fetch(`${BASE_URL}/api/admin/users?limit=${limit}&offset=${offset}`, {
+      method: 'GET',
+      headers: getHeaders(),
+    });
+    handleUnauthorized(response);
+    if (!response.ok) throw new Error('Fetching users failed');
+    return response.json();
+  },
+
+  getAdminActivity: async (userId?: string, limit = 100, offset = 0) => {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    if (userId) params.set('user_id', userId);
+    const response = await fetch(`${BASE_URL}/api/admin/activity?${params}`, {
+      method: 'GET',
+      headers: getHeaders(),
+    });
+    handleUnauthorized(response);
+    if (!response.ok) throw new Error('Fetching activity failed');
+    return response.json();
+  },
+
+  getUserTokenUsage: async (userId: string) => {
+    const response = await fetch(`${BASE_URL}/api/admin/users/${encodeURIComponent(userId)}/tokens`, {
+      method: 'GET',
+      headers: getHeaders(),
+    });
+    handleUnauthorized(response);
+    if (!response.ok) throw new Error('Fetching token usage failed');
+    return response.json();
+  },
+
+  exportActivityCsv: async (userId?: string) => {
+    const params = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+    const response = await fetch(`${BASE_URL}/api/admin/activity/export${params}`, {
+      method: 'GET',
+      headers: getHeaders(),
+    });
+    handleUnauthorized(response);
+    if (!response.ok) throw new Error('Export failed');
+    return response.blob();
+  },
+
   getUserFiles: async (userId: string) => {
-    // Revert to path parameter with encoding. The query param approach caused a 404.
-    const response = await fetch(`${BASE_URL}/admin/user-files/${encodeURIComponent(userId)}`, {
+    const response = await fetch(`${BASE_URL}/api/admin/user-files/${encodeURIComponent(userId)}`, {
       method: 'GET',
       headers: getHeaders(),
     });

@@ -6,13 +6,17 @@ import tempfile
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 import aiofiles
 import psycopg
 import redis
-from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -26,12 +30,15 @@ from .pipeline import PipelineRunner
 from .email_service import send_pdf_email
 from .progress_store import get_progress_store
 from .redis_queue import enqueue_job
+from .activity_repository import ActivityRepository, TranscriptionMetrics
+import hashlib
 
 
 settings = get_settings()
 app = FastAPI(title="Viveka Echo Backend", version="1.0.0")
 progress_store = get_progress_store(settings)
 auth_repository = AuthRepository(settings)
+activity_repository = ActivityRepository(settings)
 
 
 @dataclass
@@ -239,7 +246,11 @@ async def register(payload: RegisterRequest):
 
 @app.post("/api/v1/auth/login")
 @app.post("/auth/login")
-async def login(username: str = Form(...), password: str = Form(...)):
+async def login(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+):
     repository = _require_auth_repository()
     user = await asyncio.to_thread(repository.get_user_by_email, username)
 
@@ -247,6 +258,21 @@ async def login(username: str = Form(...), password: str = Form(...)):
         raise HTTPException(status_code=401, detail="Invalid email or password.")
 
     access_token = await asyncio.to_thread(repository.create_session_token, user.id)
+
+    # Record login in activity tracking
+    if settings.database_url:
+        ua = request.headers.get("user-agent", "")
+        ip = request.client.host if request.client else ""
+        device = "mobile" if any(k in ua.lower() for k in ("mobile", "android", "iphone")) else "desktop"
+        token_hash = hashlib.sha256(access_token.encode()).hexdigest()
+        await asyncio.to_thread(
+            activity_repository.record_login,
+            token_hash,
+            user_agent=ua,
+            ip_address=ip,
+            device_type=device,
+        )
+
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -394,16 +420,46 @@ async def append_chunked_upload(
 
 
 @app.post("/api/uploads/{upload_id}/transcribe")
-async def transcribe_chunked_upload(upload_id: str):
+async def transcribe_chunked_upload(
+    upload_id: str,
+    request: Request,
+    authorization: str | None = Header(default=None),
+):
     session = upload_sessions.get(upload_id)
     if not session:
         raise HTTPException(status_code=404, detail="Upload session not found.")
     if not upload_sessions.is_complete(upload_id):
         raise HTTPException(status_code=400, detail="Upload is incomplete.")
 
+    # Identify user if authenticated
+    user: UserRecord | None = None
+    if authorization and settings.database_url:
+        try:
+            user = await _get_current_user(authorization)
+        except Exception:
+            pass
+
+    # Build metrics object for this session
+    import os
+    m = TranscriptionMetrics()
+    m.user_id    = user.id    if user else None
+    m.user_email = user.email if user else None
+    m.original_filename = session.filename
+    m.file_size_mb = round(session.file_size_bytes / 1_048_576, 3)
+    m.audio_format = os.path.splitext(session.filename)[1].lstrip(".").lower()
+    m.input_method = "file_upload"
+    m.chunked_processing = True
+    m.processing_start = _utcnow()
+    ua = request.headers.get("user-agent", "")
+    m.user_agent = ua
+    m.ip_address = request.client.host if request.client else ""
+    m.device_type = "mobile" if any(k in ua.lower() for k in ("mobile", "android", "iphone")) else "desktop"
+
     runner = PipelineRunner(settings)
+    runner.metrics = m  # attach so pipeline + gemini can populate fields live
 
     async def event_stream():
+        import json as _json
         try:
             yield progress_event(
                 PipelineStage.uploading,
@@ -413,9 +469,15 @@ async def transcribe_chunked_upload(upload_id: str):
             await asyncio.to_thread(_assemble_chunked_upload, session)
             async for event in runner.run_saved_source(session.source_path, session.file_size_bytes, session.workspace):
                 yield event
+            m.processing_status = "success"
         except Exception as exc:
+            m.processing_status = "failed"
+            m.error_message = str(exc)[:500]
             yield progress_event(PipelineStage.error, f"Pipeline failed: {exc}")
         finally:
+            m.processing_end = _utcnow()
+            if settings.database_url:
+                await asyncio.to_thread(activity_repository.record_transcription, m)
             finalized = upload_sessions.pop(upload_id)
             if finalized:
                 shutil.rmtree(finalized.workspace, ignore_errors=True)
@@ -553,3 +615,92 @@ async def transcribe_audio(
             shutil.rmtree(workspace, ignore_errors=True)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ADMIN API — User Identity, Metrics, Activity
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _require_admin(authorization: str | None) -> UserRecord:
+    """Raise 403 if caller is not an admin."""
+    import asyncio as _asyncio
+    loop = _asyncio.get_event_loop()
+    token = _extract_bearer_token(authorization)
+    if not token or not settings.database_url:
+        raise HTTPException(status_code=403, detail="Admin access required.")
+    user = auth_repository.get_user_by_session_token(token)
+    if not user or user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required.")
+    return user
+
+
+@app.get("/api/admin/dashboard")
+async def admin_dashboard(authorization: str | None = Header(default=None)):
+    """Section 8 — Dashboard Metrics."""
+    _require_admin(authorization)
+    stats = await asyncio.to_thread(activity_repository.get_dashboard_stats)
+    return JSONResponse(stats)
+
+
+@app.get("/api/admin/users")
+async def admin_list_users(
+    limit: int = 100,
+    offset: int = 0,
+    authorization: str | None = Header(default=None),
+):
+    """Section 1 — User Identity + aggregate stats."""
+    _require_admin(authorization)
+    users = await asyncio.to_thread(activity_repository.list_users, limit, offset)
+    return JSONResponse({"users": users, "count": len(users)})
+
+
+@app.get("/api/admin/users/{user_id}/tokens")
+async def admin_user_tokens(
+    user_id: str,
+    authorization: str | None = Header(default=None),
+):
+    """Per-user Gemini token usage and cost."""
+    _require_admin(authorization)
+    usage = await asyncio.to_thread(activity_repository.get_user_token_usage, user_id)
+    return JSONResponse(usage)
+
+
+@app.get("/api/admin/activity")
+async def admin_activity(
+    user_id: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+    authorization: str | None = Header(default=None),
+):
+    """Sections 2-7 — Full activity log with all schema fields."""
+    _require_admin(authorization)
+    rows = await asyncio.to_thread(activity_repository.list_activity, user_id, limit, offset)
+    return JSONResponse({"activity": rows, "count": len(rows)})
+
+
+@app.get("/api/admin/activity/export")
+async def admin_export_csv(
+    user_id: str | None = None,
+    authorization: str | None = Header(default=None),
+):
+    """Export activity log as CSV (Section 6 — Admin activity report exported)."""
+    _require_admin(authorization)
+    csv_data = await asyncio.to_thread(activity_repository.export_activity_csv, user_id)
+    from fastapi.responses import Response
+    return Response(
+        content=csv_data,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=viveka_activity.csv"},
+    )
+
+
+@app.post("/api/admin/activity/{session_id}/flag")
+async def admin_flag_export(
+    session_id: str,
+    flag: str,
+    value: bool = True,
+    authorization: str | None = Header(default=None),
+):
+    """Update a single export/artifact boolean flag on an activity record."""
+    _require_admin(authorization)
+    await asyncio.to_thread(activity_repository.update_export_flag, session_id, flag, value)
+    return JSONResponse({"ok": True})

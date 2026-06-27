@@ -4,15 +4,7 @@ import { jsPDF } from 'jspdf';
 import { uploadToMinio } from '../services/minio.service';
 import { getAccessToken, getStoredUser } from '../services/authStorage';
 import { TRANSCRIPTION_API_URL } from '../services/config';
-import {
-  Document,
-  Packer,
-  Paragraph,
-  HeadingLevel,
-  TextRun
-} from "docx";
 
-import { saveAs } from "file-saver";
 interface Props {
   result: TranscriptionResult;
   audioUrl?: string;
@@ -26,19 +18,24 @@ const s = (val: any): string => val?.toString() || "";
 
 const TranscriptView: React.FC<{ result: TranscriptionResult }> = ({ result }) => (
   <div className="max-w-4xl mx-auto space-y-12 bg-white">
-    <div className="space-y-6">
-      <h3 className="text-3xl font-black text-slate-900 border-b-8 border-slate-900 pb-3 uppercase tracking-tighter">Summary Of Interview</h3>
-      <div className="space-y-8 text-xl leading-relaxed text-slate-800 font-serif text-justify">
-        {result.executiveSynthesis?.map((chunk, i) => (
-          <div key={i} className="relative">
-            <span className="font-black text-slate-900 bg-slate-100 px-3 py-1 rounded-lg text-sm mr-2 align-middle">
-              Summary {chunk.chunk_id}
-            </span>
-            <span className="align-middle">{chunk.text}</span>
-          </div>
-        ))}
+    {result.summary && (
+      <div className="space-y-4">
+        <h3 className="text-3xl font-black text-slate-900 border-b-8 border-slate-900 pb-3 uppercase tracking-tighter">Summary</h3>
+        <div className="text-xl leading-relaxed text-slate-800 font-serif text-justify bg-slate-50 p-6 rounded-2xl border border-slate-100">
+          {result.summary}
+        </div>
+        {(result.keyPoints?.length ?? 0) > 0 && (
+          <ul className="space-y-2 pt-2">
+            {result.keyPoints.map((pt, i) => (
+              <li key={i} className="flex items-start gap-3 text-sm text-slate-700 font-medium">
+                <span className="w-5 h-5 bg-violet-600 text-white text-[9px] font-black rounded-full flex items-center justify-center shrink-0 mt-0.5">{i+1}</span>
+                {pt}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
-    </div>
+    )}
 
     <div className="pt-10 space-y-12">
       <div className="flex items-end justify-between border-b-8 border-slate-900 pb-3">
@@ -104,23 +101,35 @@ const downloadJson = (data: unknown, filename: string) => {
 };
 
 const downloadCsv = (turns: TranscriptionResult['turns'], filename: string) => {
-  const headers = ['#', 'Speaker', 'Timestamp', 'Duration(s)', 'Original Script', 'Transliteration', 'English Translation', 'Language', 'Confidence'];
-  const escape = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const esc = (v: unknown): string => {
+    const s = String(v ?? '');
+    // Always quote — handles commas, newlines, and quotes inside non-Latin scripts
+    return '"' + s.replace(/"/g, '""').replace(/\r?\n/g, ' ') + '"';
+  };
+  const headers = ['#', 'Speaker', 'MU_ID', 'Timestamp', 'Start(s)', 'End(s)', 'Duration(s)', 'Original Script', 'Transliteration', 'English Translation', 'Language', 'Confidence(%)'];
   const rows = turns.map((t, i) => [
     i + 1,
-    escape(t.speaker),
-    escape(t.timestamp),
-    t.duration_seconds?.toFixed(1) ?? '',
-    escape(t.original),
-    escape(t.transliterated),
-    escape(t.translated),
-    escape(t.language),
-    t.confidence != null ? (t.confidence * 100).toFixed(1) + '%' : '',
+    esc(t.speaker),
+    esc(t.mu_id),
+    esc(t.timestamp),
+    t.start_time_seconds?.toFixed(2) ?? '',
+    t.end_time_seconds?.toFixed(2) ?? '',
+    t.duration_seconds != null ? Math.max(0, t.duration_seconds).toFixed(1) : '',
+    esc(t.original),
+    esc(t.transliterated),
+    esc(t.translated),
+    esc(t.language ?? ''),
+    t.confidence != null ? (t.confidence * 100).toFixed(1) : '',
   ].join(','));
-  const csv = [headers.join(','), ...rows].join('\n');
+  const csv = [headers.map(h => esc(h)).join(','), ...rows].join('\r\n');
   const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
   URL.revokeObjectURL(url);
 };
 
@@ -221,31 +230,6 @@ const resolvePdfFontStyle = (fontName: string, preferredStyle: string): 'normal'
   return 'normal';
 };
 
-const buildExecutiveSynthesisText = (result: TranscriptionResult) => {
-  const synthesis = (result.executiveSynthesis || [])
-    .map((chunk) => (chunk.text || '').trim())
-    .filter(Boolean)
-    .join(' ')
-    .trim();
-
-  if (synthesis) {
-    return synthesis;
-  }
-
-  const summary = (result.summary || '').trim();
-  if (summary) {
-    return summary;
-  }
-
-  const translatedTurns = (result.turns || [])
-    .slice(0, 3)
-    .map((turn) => (turn.translated || turn.original || '').trim())
-    .filter(Boolean)
-    .join(' ')
-    .trim();
-
-  return translatedTurns || 'Transcript available. No synthesis content was generated for this export.';
-};
 
 const formatSecondsForPdf = (seconds: number | undefined) => {
   const safe = Math.max(0, seconds || 0);
@@ -304,7 +288,9 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
           PDF_FONT_STYLES.forEach((style) => pdf.addFont(font.file, font.name, style));
         })
       );
-      const executiveText = buildExecutiveSynthesisText(result);
+      const summaryText = (result.summary || '').trim() ||
+        (result.turns || []).slice(0,3).map((t: TranscriptionResult['turns'][number]) => (t.translated || t.original || '').trim()).filter(Boolean).join(' ') ||
+        'Transcript available.';
       const margin = 18, pageWidth = pdf.internal.pageSize.getWidth();
       const contentWidth = pageWidth - margin * 2;
       const pageHeight = pdf.internal.pageSize.getHeight();
@@ -350,8 +336,8 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
       pdf.setFont('Latin','normal'); pdf.setFontSize(8.5); pdf.setTextColor(15,23,42);
       pdf.text(new Date().toLocaleString('en-GB', {day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'}), margin+30, y+17);
       y += 26;
-      addText('SUMMARY OF INTERVIEW', 13, 'bold', [15,23,42]);
-      addText(executiveText, 10, 'italic', [51,65,85], 8, detectFontFamily(executiveText));
+      addText('INTERVIEW SUMMARY', 13, 'bold', [15,23,42]);
+      addText(summaryText, 10, 'italic', [51,65,85], 8, detectFontFamily(summaryText));
       y += 6;
       addText('FULL VERBATIM RECORD', 12, 'bold', [15,23,42]);
       result.turns?.forEach((turn) => {
@@ -393,85 +379,40 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
     }
   };
 
+
   const generateWord = async () => {
     try {
-  const doc = new Document({
-    sections: [
-      {
-        children: [
-          new Paragraph({
-            text: "VIVEKA AI RESEARCH DOSSIER",
-            heading: HeadingLevel.TITLE,
-          }),
-
-          new Paragraph({
-            text: "",
-          }),
-
-          
-
-          new Paragraph({
-            text: "FULL VERBATIM RECORD",
-            heading: HeadingLevel.HEADING_1,
-          }),
-
-          ...result.turns.flatMap((turn) => [
-            new Paragraph({
-              text: turn.speaker,
-              heading: HeadingLevel.HEADING_2,
-            }),
-
-            new Paragraph({
-              children: [
-                new TextRun({
-                  text: "Original: ",
-                  bold: true,
-                }),
-                new TextRun(turn.original),
-              ],
-            }),
-
-            new Paragraph({
-              children: [
-                new TextRun({
-                  text: "Transliteration: ",
-                  bold: true,
-                }),
-                new TextRun(turn.transliterated || ""),
-              ],
-            }),
-
-            new Paragraph({
-              children: [
-                new TextRun({
-                  text: "English Translation: ",
-                  bold: true,
-                }),
-                new TextRun(turn.translated),
-              ],
-            }),
-
-            new Paragraph({
-              text: "",
-            }),
-          ]),
-        ],
-      },
-    ],
-  });
-
-  const blob = await Packer.toBlob(doc);
-
-  saveAs(
-    blob,
-    `Viveka_${(originalFileName || "Transcript").replace(/\.[^/.]+$/, "")}.docx`
-  );
-
-  } catch (error) {
-    console.error(error);
-    alert("Word generation failed.");
-  }
+      const { Document, Packer, Paragraph, HeadingLevel, TextRun } = await import('docx');
+      const { saveAs } = await import('file-saver');
+      const doc = new Document({
+        sections: [{
+          children: [
+            new Paragraph({ text: "VIVEKA AI RESEARCH DOSSIER", heading: HeadingLevel.TITLE }),
+            new Paragraph({ text: "" }),
+            ...(result.summary ? [
+              new Paragraph({ text: "INTERVIEW SUMMARY", heading: HeadingLevel.HEADING_1 }),
+              new Paragraph({ children: [new TextRun(result.summary)] }),
+              new Paragraph({ text: "" }),
+            ] : []),
+            new Paragraph({ text: "FULL VERBATIM RECORD", heading: HeadingLevel.HEADING_1 }),
+            ...result.turns.flatMap((turn) => [
+              new Paragraph({ text: normalizeSpeakerLabel(turn.speaker), heading: HeadingLevel.HEADING_2 }),
+              new Paragraph({ children: [new TextRun({ text: "Original: ", bold: true }), new TextRun(turn.original || "")] }),
+              new Paragraph({ children: [new TextRun({ text: "Transliteration: ", bold: true }), new TextRun(turn.transliterated || "")] }),
+              new Paragraph({ children: [new TextRun({ text: "English Translation: ", bold: true }), new TextRun(turn.translated || "")] }),
+              new Paragraph({ text: "" }),
+            ]),
+          ],
+        }],
+      });
+      const blob = await Packer.toBlob(doc);
+      saveAs(blob, `Viveka_${(originalFileName || 'Transcript').replace(/\.[^/.]+$/, '')}.docx`);
+    } catch (err) {
+      console.error(err);
+      alert('Word export failed. Make sure docx and file-saver are installed:\nnpm install docx file-saver');
+    }
   };
+
   const generatePDF = async () => {
     setIsExporting(true);
 
@@ -679,48 +620,30 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
       });
       y = metaTop + metaCardH + 10;
 
-      // ── EXECUTIVE SYNTHESIS on cover ──────────────────────────────────────
-      pdf.setFont('Latin', 'bold');
-      pdf.setFontSize(9);
-      pdf.setTextColor(...C_MUTED);
-      pdf.text('EXECUTIVE SYNTHESIS', MARGIN, y);
-      y += 7;
+      // ── SUMMARY on cover ──────────────────────────────────────────────────
+      if (result.summary) {
+        pdf.setFont('Latin', 'bold');
+        pdf.setFontSize(9);
+        pdf.setTextColor(...C_MUTED);
+        pdf.text('INTERVIEW SUMMARY', MARGIN, y);
+        y += 7;
 
-      const execItems = (result.executiveSynthesis || []).filter(cs => cs.text?.trim());
-      if (execItems.length === 0 && result.summary) {
-        execItems.push({ chunk_id: 1, text: result.summary });
-      }
-
-      execItems.forEach((cs, idx) => {
-        const textH = measureText(cs.text, 9.5, 0);
-        const cardH = Math.max(22, textH + 14);
-        checkBreak(cardH + 4);
-
-        // Card background
+        const summaryLines: string[] = pdf.splitTextToSize(result.summary, contentWidth - 10);
+        const summaryCardH = Math.max(20, summaryLines.length * lh(9.5) + 12);
+        checkBreak(summaryCardH + 4);
         pdf.setFillColor(...C_WHITE);
         pdf.setDrawColor(...C_BORDER);
         pdf.setLineWidth(0.3);
-        pdf.roundedRect(MARGIN, y, contentWidth, cardH, 3, 3, 'FD');
-
-        // Numbered badge (filled circle)
-        const badgeR = 3.8;
+        pdf.roundedRect(MARGIN, y, contentWidth, summaryCardH, 3, 3, 'FD');
         pdf.setFillColor(...C_VIOLET);
-        pdf.circle(MARGIN + badgeR + 4, y + badgeR + 5, badgeR, 'F');
-        pdf.setFont('Latin', 'bold');
-        pdf.setFontSize(7);
-        pdf.setTextColor(...C_WHITE);
-        pdf.text(`${idx + 1}`, MARGIN + badgeR + 4, y + badgeR + 5 + 2.2, { align: 'center' });
-
-        const textX = MARGIN + badgeR * 2 + 10;
-        const textW = contentWidth - badgeR * 2 - 14;
+        pdf.rect(MARGIN, y, 2.5, summaryCardH, 'F');
         pdf.setFont('Latin', 'normal');
         pdf.setFontSize(9.5);
         pdf.setTextColor(...C_BODY);
-        const lines: string[] = pdf.splitTextToSize(cs.text, textW);
-        let ty = y + 8;
-        lines.forEach(line => { pdf.text(line, textX, ty); ty += lh(9.5); });
-        y += cardH + 5;
-      });
+        let sy = y + 7;
+        summaryLines.forEach((line: string) => { pdf.text(line, MARGIN + 7, sy); sy += lh(9.5); });
+        y += summaryCardH + 5;
+      }
 
       addPageFooter();
 
@@ -876,100 +799,92 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
              </svg>
            </div>
            <div>
-             <h2 className="text-2xl font-black text-slate-900 tracking-tight leading-tight">{originalFileName || 'Research Archive'}</h2>
-             <div className="flex items-center gap-3 mt-1">
-                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">High-Fidelity Verbatim Sync Active</p>
+             <h2 className="text-lg font-black text-slate-900 tracking-tight leading-tight truncate max-w-[280px]" title={originalFileName || 'Research Archive'}>{originalFileName || 'Research Archive'}</h2>
+             <div className="flex items-center gap-2 mt-1 flex-wrap">
+                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full shrink-0"></span>
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.15em]">High-Fidelity Verbatim Sync Active</p>
                 {processingTimeTaken != null && (
-                  <span className="ml-2 px-2.5 py-0.5 bg-emerald-50 border border-emerald-200 text-emerald-700 text-[9px] font-black uppercase tracking-widest rounded-full">
+                  <span className="px-2 py-0.5 bg-emerald-50 border border-emerald-200 text-emerald-700 text-[8px] font-black uppercase tracking-widest rounded-full">
                     ⏱ {Math.floor(processingTimeTaken / 60)}m {processingTimeTaken % 60}s
                   </span>
                 )}
              </div>
            </div>
         </div>
-        
-        <div className="flex items-center gap-4">
-          <div className="flex p-1.5 bg-slate-100 rounded-2xl shadow-inner">
-             <button 
-               onClick={() => setActiveTab('transcript')}
-               className={`px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'transcript' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400 hover:text-slate-600'}`}
-             >Transcript</button>
-             <button 
-               onClick={() => setActiveTab('artifacts')}
-               className={`px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'artifacts' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400 hover:text-slate-600'}`}
-             >AWESOME Artifacts</button>
-          </div>
-          <button 
-            onClick={generatePDF} 
-            disabled={isExporting}
-            className={`p-4 rounded-2xl transition-all shadow-xl active:scale-95 flex items-center gap-2
-              ${isExporting ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-slate-900 text-white hover:bg-violet-600 shadow-slate-900/20'}
-            `}
-          >
-             {isExporting ? (
-               <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-             ) : (
-               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-               </svg>
-             )}
-             <span className="text-[10px] font-black uppercase tracking-widest pr-2">Export Dossier</span>
-          </button>
-          <button
-            onClick={generateWord}
-            title="Download Word document"
-            className="p-4 rounded-2xl transition-all shadow-xl active:scale-95 flex items-center gap-2 bg-blue-600 text-white hover:bg-blue-700 shadow-blue-600/20"
-          >
-            <svg
-              className="w-5 h-5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M7 3h8l5 5v13a1 1 0 01-1 1H7a2 2 0 01-2-2V5a2 2 0 012-2z"
-              />
-            </svg>
 
-            <span className="text-[10px] font-black uppercase tracking-widest pr-2">
-              WORD DOCUMENT
-            </span>
-          </button>
-          {/* CSV transcript download */}
-          <button
-            onClick={() => {
-              const base = (originalFileName || 'transcript').replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40);
-              downloadCsv(result.turns, `${base}_transcript.csv`);
-            }}
-            title="Download transcript as CSV"
-            className="p-4 rounded-2xl transition-all shadow-xl active:scale-95 flex items-center gap-2 bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-600/20"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            <span className="text-[10px] font-black uppercase tracking-widest pr-2">CSV Transcript</span>
-          </button>
-          <button
-            onClick={sendByEmail}
-            disabled={isSendingEmail}
-            title="Email dossier to your registered email"
-            className={`p-4 rounded-2xl transition-all shadow-xl active:scale-95 flex items-center gap-2
-              ${isSendingEmail ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-violet-600 text-white hover:bg-violet-700 shadow-violet-600/20'}
-            `}
-          >
-            {isSendingEmail ? (
-              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-            ) : (
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
-            )}
-            <span className="text-[10px] font-black uppercase tracking-widest pr-2">Email Dossier</span>
-          </button>
+        {/* Tab switcher + export actions — two-row layout to prevent overflow */}
+        <div className="flex flex-col gap-3 items-end shrink-0">
+          {/* Row 1: Tab switcher */}
+          <div className="flex p-1 bg-slate-100 rounded-xl shadow-inner">
+            <button
+              onClick={() => setActiveTab('transcript')}
+              className="px-5 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest bg-white shadow text-slate-900"
+            >Transcript</button>
+            <button
+              disabled
+              className="px-5 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest text-slate-300 cursor-not-allowed flex items-center gap-1.5"
+              title="Coming soon"
+            >
+              Artifacts
+              <span className="text-[7px] bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full font-black uppercase">Soon</span>
+            </button>
+          </div>
+
+          {/* Row 2: Export buttons — icon + short label, compact */}
+          <div className="flex items-center gap-2">
+            {/* Export PDF */}
+            <button
+              onClick={generatePDF}
+              disabled={isExporting}
+              title="Export PDF Dossier"
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow active:scale-95
+                ${isExporting ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-slate-900 text-white hover:bg-violet-600'}`}
+            >
+              {isExporting
+                ? <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+              }
+              PDF
+            </button>
+
+            {/* Word */}
+            <button
+              onClick={generateWord}
+              title="Download Word Document"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest bg-blue-600 text-white hover:bg-blue-700 transition-all shadow active:scale-95"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 3h8l5 5v13a1 1 0 01-1 1H7a2 2 0 01-2-2V5a2 2 0 012-2z" /></svg>
+              Word
+            </button>
+
+            {/* CSV */}
+            <button
+              onClick={() => {
+                const base = (originalFileName || 'transcript').replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40);
+                downloadCsv(result.turns, `${base}_transcript.csv`);
+              }}
+              title="Download CSV Transcript"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest bg-emerald-600 text-white hover:bg-emerald-700 transition-all shadow active:scale-95"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+              CSV
+            </button>
+
+            {/* Email */}
+            <button
+              onClick={sendByEmail}
+              disabled={isSendingEmail}
+              title="Email Dossier"
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow active:scale-95
+                ${isSendingEmail ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-violet-600 text-white hover:bg-violet-700'}`}
+            >
+              {isSendingEmail
+                ? <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+              }
+              Email
+            </button>
+          </div>
         </div>
       </div>
       {emailStatus && (
@@ -985,7 +900,7 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
             <audio controls src={audioUrl} className="w-full" />
           </div>
         )}
-        {activeTab === 'transcript' ? <TranscriptView result={result} /> : <ArtifactsView result={result} />}
+        <TranscriptView result={result} />
       </div>
     </div>
   );

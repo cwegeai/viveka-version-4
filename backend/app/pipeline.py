@@ -5,6 +5,7 @@ import logging
 import tempfile
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fastapi import UploadFile
 
@@ -16,6 +17,9 @@ from .gemini_service import GeminiArtifactService
 from .merge_engine import merge_chunk_results
 from .models import ChunkTranscript, PipelineStage
 
+if TYPE_CHECKING:
+    from .activity_repository import TranscriptionMetrics
+
 logger = logging.getLogger(__name__)
 
 
@@ -24,6 +28,8 @@ class PipelineRunner:
         self.settings = settings
         self.transcriber = DeepgramTranscriptionService(settings)
         self.gemini = GeminiArtifactService(settings)
+        # Set by caller (main.py) before run_saved_source is called
+        self.metrics: "TranscriptionMetrics | None" = None
 
     def _worker_count_for_size(self, file_size_bytes: int) -> int:
         if file_size_bytes <= self.settings.small_file_limit_bytes:
@@ -73,6 +79,11 @@ class PipelineRunner:
         chunks_dir.mkdir(parents=True, exist_ok=True)
         yield progress_event(PipelineStage.splitting, "Probing and preparing audio...", progress=25)
         duration_seconds = await asyncio.to_thread(probe_duration_seconds, source_path)
+
+        # Populate duration in metrics now that we know it
+        if self.metrics is not None:
+            self.metrics.audio_duration_mins = round(duration_seconds / 60, 3)
+
         chunk_plan: list[tuple[int, float, float]] | None = None
         if duration_seconds <= self.settings.direct_transcribe_max_seconds:
             chunk_manifests = [
@@ -103,6 +114,12 @@ class PipelineRunner:
                 progress=35,
                 total_chunks=total_chunks,
             )
+
+        # Attach metrics to gemini so it can track token usage
+        if self.metrics is not None:
+            self.metrics.num_chunks = total_chunks
+            self.metrics.chunked_processing = total_chunks > 1
+            self.gemini.metrics = self.metrics
 
         worker_limit = self._worker_count_for_size(file_size_bytes)
         semaphore = asyncio.Semaphore(worker_limit)

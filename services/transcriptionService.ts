@@ -1,8 +1,14 @@
 import { TranscriptionResult } from "../types";
 import { TRANSCRIPTION_API_URL } from "./config";
+import { getAccessToken } from "./authStorage";
 
 const CHUNKED_UPLOAD_THRESHOLD_BYTES = 0;
 const MAX_PARALLEL_UPLOADS = 4;
+
+const authHeader = (): Record<string, string> => {
+  const token = getAccessToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
 
 type PipelineEventPayload = {
   stage?: string;
@@ -164,7 +170,7 @@ const uploadChunkedAudio = async (
 
   const initResponse = await fetch(`${TRANSCRIPTION_API_URL}/api/uploads/init`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeader() },
     body: JSON.stringify({
       filename: audioFile.name,
       file_size_bytes: audioFile.size,
@@ -228,6 +234,7 @@ const uploadChunkedAudio = async (
   onStatusChange("Upload complete. Waiting for backend transcription events...", 20);
   const transcribeResponse = await fetch(`${TRANSCRIPTION_API_URL}/api/uploads/${uploadId}/transcribe`, {
     method: "POST",
+    headers: { ...authHeader() },
     signal,
   });
   return consumeSseResponse(transcribeResponse, onStatusChange, onPartialResult);

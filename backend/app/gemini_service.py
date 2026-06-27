@@ -3,20 +3,20 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import random
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any, Optional
 
 import httpx
 from deep_translator import GoogleTranslator
+
+if TYPE_CHECKING:
+    from .activity_repository import TranscriptionMetrics
 
 logger = logging.getLogger(__name__)
 
 from .config import Settings
 from .merge_engine import format_timestamp
 from .models import (
-    ChunkSummary,
-    ChunkTranscript,
     FinalResult,
     MergedTranscript,
     TranscriptTurn,
@@ -24,10 +24,8 @@ from .models import (
 
 
 # ---------------------------------------------------------------------------
-# Gemini finish-reason / error constants that mean "content cut off"
+# Helpers
 # ---------------------------------------------------------------------------
-_TRUNCATED_FINISH_REASONS = {"MAX_TOKENS", "RECITATION", "SAFETY", "OTHER"}
-
 
 def _contains_non_ascii_letters(text: str) -> bool:
     return any(ord(char) > 127 and char.isalpha() for char in (text or ""))
@@ -35,90 +33,66 @@ def _contains_non_ascii_letters(text: str) -> bool:
 
 NON_ASCII_RUN_PATTERN = re.compile(r"[^\x00-\x7F]+")
 
+_CHARS_PER_TOKEN = 4  # rough approximation for token cost estimation
+
+def _estimate_tokens(text: str) -> int:
+    return max(1, len(text) // _CHARS_PER_TOKEN)
+
+
+def _detect_script(text: str) -> str:
+    """Return a human-readable script name for the dominant non-ASCII script."""
+    if not text:
+        return ""
+    if re.search(r"[\u0D00-\u0D7F]", text): return "Malayalam"
+    if re.search(r"[\u0900-\u097F]", text): return "Devanagari"
+    if re.search(r"[\u0B80-\u0BFF]", text): return "Tamil"
+    if re.search(r"[\u0C00-\u0C7F]", text): return "Telugu"
+    if re.search(r"[\u0B00-\u0B7F]", text): return "Oriya"
+    if re.search(r"[\u0980-\u09FF]", text): return "Bengali"
+    if re.search(r"[\u0A00-\u0A7F]", text): return "Gurmukhi"
+    if re.search(r"[\u0A80-\u0AFF]", text): return "Gujarati"
+    if re.search(r"[\u0C80-\u0CFF]", text): return "Kannada"
+    return ""
+
 
 def _looks_untranslated(original: str, translated: str) -> bool:
-    normalized_original = (original or "").strip()
-    normalized_translated = (translated or "").strip()
-    if not normalized_original:
+    o = (original or "").strip()
+    t = (translated or "").strip()
+    if not o:
         return False
-    if not normalized_translated:
+    if not t:
         return True
-    return normalized_original == normalized_translated
+    return o == t
 
 
-def _summary_source_text(turn: TranscriptTurn) -> str:
-    translated = (turn.translated or "").strip()
+def _needs_translation(turn: TranscriptTurn) -> bool:
+    """True if the turn still needs transliteration or translation."""
     original = (turn.original or "").strip()
-    if translated and translated != original:
-        return translated
-    return original
-
-
-def _fallback_interview_summary(turns: list[TranscriptTurn]) -> str:
-    snippets = [_summary_source_text(turn).strip() for turn in turns[:3] if _summary_source_text(turn).strip()]
-    if snippets:
-        return " ".join(snippets)
-    return "Interview transcript generated."
-
-
-def _fallback_key_points(turns: list[TranscriptTurn]) -> list[str]:
-    points: list[str] = []
-    for turn in turns[:3]:
-        text = _summary_source_text(turn).strip()
-        if text and text not in points:
-            points.append(text)
-    return points
-
-
-def _needs_turn_translation(turn: TranscriptTurn) -> bool:
-    original = (turn.original or "").strip()
-    translated = (turn.translated or "").strip()
-    transliterated = (turn.transliterated or "").strip()
-
     if not original or not _contains_non_ascii_letters(original):
         return False
-
+    translated = (turn.translated or "").strip()
+    transliterated = (turn.transliterated or "").strip()
+    # Needs work if translation missing/same as original, or transliteration missing/same
     if not translated or translated == original or _contains_non_ascii_letters(translated):
         return True
-
     if not transliterated or transliterated == original:
         return True
-
     return False
 
 
-def _merge_turn_repairs(source_turns: list[TranscriptTurn], repaired_turns: list[TranscriptTurn]) -> list[TranscriptTurn]:
-    repairs_by_id = {turn.mu_id: turn for turn in repaired_turns if turn.mu_id}
-    merged_turns: list[TranscriptTurn] = []
-
-    for index, source_turn in enumerate(source_turns):
-        repaired_turn = repairs_by_id.get(source_turn.mu_id)
-        if repaired_turn is None and index < len(repaired_turns):
-            repaired_turn = repaired_turns[index]
-
-        if repaired_turn is None:
-            merged_turns.append(source_turn)
-            continue
-
-        merged_turns.append(
-            source_turn.model_copy(
-                update={
-                    "transliterated": repaired_turn.transliterated or source_turn.transliterated,
-                    "translated": repaired_turn.translated or source_turn.translated,
-                    "language": repaired_turn.language or source_turn.language,
-                    "languages": repaired_turn.languages or source_turn.languages,
-                }
-            )
-        )
-
-    return merged_turns
+def _fallback_summary(turns: list[TranscriptTurn]) -> str:
+    snippets = []
+    for turn in turns[:3]:
+        t = (turn.translated or turn.original or "").strip()
+        if t:
+            snippets.append(t)
+    return " ".join(snippets) if snippets else "Interview transcript generated."
 
 
 def _extract_json_object(raw_text: str) -> dict[str, Any] | None:
     raw_text = raw_text.strip()
     if not raw_text:
         return None
-
     try:
         return json.loads(raw_text)
     except json.JSONDecodeError:
@@ -127,7 +101,7 @@ def _extract_json_object(raw_text: str) -> dict[str, Any] | None:
         if start == -1 or end == -1 or end <= start:
             return None
         try:
-            return json.loads(raw_text[start : end + 1])
+            return json.loads(raw_text[start: end + 1])
         except json.JSONDecodeError:
             return None
 
@@ -140,112 +114,75 @@ def _ensure_list(value: Any) -> list[Any]:
     return [value]
 
 
-def _normalize_model_payload(parsed: dict[str, Any]) -> dict[str, Any]:
-    normalized = dict(parsed)
-
-    executive = normalized.get("executiveSynthesis")
-    if isinstance(executive, str):
-        normalized["executiveSynthesis"] = [{"chunk_id": 1, "text": executive}] if executive.strip() else []
-    else:
-        normalized["executiveSynthesis"] = _ensure_list(executive)
-
-    if isinstance(normalized.get("keyPoints"), str):
-        key_points = normalized.get("keyPoints", "")
-        normalized["keyPoints"] = [key_points] if key_points else []
-    else:
-        normalized["keyPoints"] = _ensure_list(normalized.get("keyPoints"))
-
-    list_fields = ["turns"]
-    for field_name in list_fields:
-        normalized[field_name] = _ensure_list(normalized.get(field_name))
-
-    if not isinstance(normalized.get("summary"), str):
-        normalized["summary"] = str(normalized.get("summary") or "")
-
-    return normalized
-
-
-# ---------------------------------------------------------------------------
-# Chunk-level executive synthesis helpers
-# ---------------------------------------------------------------------------
-
-def _build_chunk_text_map(chunk_results: list[ChunkTranscript]) -> dict[int, str]:
-    """Return a mapping of chunk_id → transcript text (capped at 800 chars each)."""
-    mapping: dict[int, str] = {}
-    for chunk in chunk_results:
-        mapping[chunk.chunk_id] = (chunk.transcript or "").strip()[:800]
-    return mapping
-
-
-def _turns_for_chunk(turns: list[TranscriptTurn], chunk: ChunkTranscript) -> list[TranscriptTurn]:
-    """Return the subset of turns whose timestamps fall within this chunk's time window."""
-    return [
-        t for t in turns
-        if t.start_time_seconds >= chunk.start_time and t.end_time_seconds <= chunk.end_time + 1.0
-    ]
-
-
 class GeminiArtifactService:
     def __init__(self, settings: Settings):
         self.settings = settings
-        # Semaphore is created lazily on first use so it is always bound to the
-        # running event loop (module-level Semaphore creation breaks on Python ≥3.10).
-        self._semaphore: asyncio.Semaphore | None = None
+        self._semaphore: Optional[asyncio.Semaphore] = None
+        self.metrics: Optional[TranscriptionMetrics] = None
 
     def _get_semaphore(self) -> asyncio.Semaphore:
-        """Return (creating if needed) a per-instance Semaphore.
-
-        Allows up to 5 concurrent Gemini requests — safe now that artifact
-        generation has been removed and overall request count is low.
-        """
         if self._semaphore is None:
-            self._semaphore = asyncio.Semaphore(5)
+            # Limit to 1 concurrent Gemini call — prevents 503 rate limit bursts.
+            # Batches are processed sequentially; GoogleTranslator handles fallback instantly.
+            self._semaphore = asyncio.Semaphore(1)
         return self._semaphore
 
     # ------------------------------------------------------------------
-    # Internal HTTP helper
+    # GoogleTranslator fallback — fast, free, no quota
     # ------------------------------------------------------------------
 
-    async def _fallback_translate_text(self, text: str) -> str:
+    async def _google_translate(self, text: str) -> str:
+        """Translate text to English via GoogleTranslator (runs in thread)."""
         if not text.strip() or not _contains_non_ascii_letters(text):
             return text
 
-        def _translate() -> str:
+        def _do() -> str:
             return GoogleTranslator(source="auto", target="en").translate(text)
 
         try:
-            translated = await asyncio.to_thread(_translate)
-            if translated and translated.strip() and translated.strip() != text.strip():
-                return translated.strip()
+            result = await asyncio.to_thread(_do)
+            if result and result.strip() and result.strip() != text.strip():
+                return result.strip()
         except Exception:
             pass
 
+        # Segment fallback — translate non-ASCII runs individually
         parts: list[str] = []
-        last_index = 0
+        last = 0
         changed = False
         for match in NON_ASCII_RUN_PATTERN.finditer(text):
-            start, end = match.span()
-            if start > last_index:
-                parts.append(text[last_index:start])
-            segment = match.group(0)
+            s, e = match.span()
+            if s > last:
+                parts.append(text[last:s])
+            seg = match.group(0)
             try:
-                translated_segment = await asyncio.to_thread(
-                    lambda s=segment: GoogleTranslator(source="auto", target="en").translate(s)
+                tseg = await asyncio.to_thread(
+                    lambda x=seg: GoogleTranslator(source="auto", target="en").translate(x)
                 )
             except Exception:
-                translated_segment = segment
-            if translated_segment and translated_segment != segment:
+                tseg = seg
+            if tseg and tseg != seg:
                 changed = True
-            parts.append(translated_segment or segment)
-            last_index = end
-
-        if last_index < len(text):
-            parts.append(text[last_index:])
-
+            parts.append(tseg or seg)
+            last = e
+        if last < len(text):
+            parts.append(text[last:])
         rebuilt = "".join(parts).strip()
-        if changed and rebuilt:
-            return rebuilt
-        return text
+        return rebuilt if changed and rebuilt else text
+
+    async def _google_transliterate(self, text: str) -> str:
+        """
+        Best-effort Latin transliteration via GoogleTranslator.
+        GoogleTranslator doesn't have a true transliterate endpoint, so we
+        translate to English — the transliteration is carried implicitly in
+        Deepgram's output or we just return the translation as a proxy.
+        For genuine transliteration we rely on Gemini when available.
+        """
+        return await self._google_translate(text)
+
+    # ------------------------------------------------------------------
+    # Gemini HTTP helper
+    # ------------------------------------------------------------------
 
     async def _request_json(
         self,
@@ -254,526 +191,221 @@ class GeminiArtifactService:
         timeout: float = 60.0,
         label: str = "Gemini request",
     ) -> dict[str, Any] | None:
+        """Call Gemini and return parsed JSON.
+
+        Only tries the configured model (default: gemini-2.5-flash).
+        On 503/429 waits progressively before retrying — up to 4 attempts.
+        Returns None if all attempts fail so callers use GoogleTranslator fallback.
         """
-        Call Gemini generateContent and return the parsed JSON payload.
-        Rotates through fallback models on HTTP 404, 429, 5xx, or network errors.
-        """
-        configured_model = self.settings.gemini_model
-        models_to_try = [configured_model]
-        for m in ["gemini-2.5-flash", "gemini-3.1-flash-lite", "gemini-flash-lite-latest", "gemini-2.5-pro", "gemini-pro-latest"]:
-            if m not in models_to_try:
-                models_to_try.append(m)
+        model = self.settings.gemini_model  # e.g. "gemini-2.5-flash"
+        url = (
+            f"{self.settings.gemini_base_url}/models/{model}:generateContent"
+            f"?key={self.settings.gemini_api_key}"
+        )
+        # Progressive waits for 429/5xx: 5s, 15s, 30s, 60s
+        retry_waits = [5, 15, 30, 60]
 
-        last_error: Exception | None = None
-
-        for model_name in models_to_try:
-            url = (
-                f"{self.settings.gemini_base_url}/models/{model_name}:generateContent"
-                f"?key={self.settings.gemini_api_key}"
-            )
-
-            # Retry waits (seconds) for 429/5xx: 1.0s + jitter
-            for attempt in range(2):
-                try:
-                    async with self._get_semaphore():
-                        async with httpx.AsyncClient(timeout=timeout) as client:
-                            response = await client.post(
-                                url,
-                                headers={"Content-Type": "application/json"},
-                                json={
-                                    "contents": [{"parts": [{"text": prompt}]}],
-                                    "generationConfig": {
-                                        "temperature": 0.2,
-                                        "responseMimeType": "application/json",
-                                    },
+        for attempt in range(4):
+            try:
+                async with self._get_semaphore():
+                    async with httpx.AsyncClient(timeout=timeout) as client:
+                        response = await client.post(
+                            url,
+                            headers={"Content-Type": "application/json"},
+                            json={
+                                "contents": [{"parts": [{"text": prompt}]}],
+                                "generationConfig": {
+                                    "temperature": 0.1,
+                                    "responseMimeType": "application/json",
                                 },
-                            )
-
-                        if response.status_code in {429, 500, 502, 503, 504}:
-                            body_text = response.text[:200]
-                            logger.warning(
-                                f"[{label}] Model {model_name} HTTP {response.status_code} "
-                                f"(attempt {attempt + 1}/2). Body: {body_text}"
-                            )
-                            if attempt < 1:
-                                wait = random.uniform(0.5, 1.5)
-                                await asyncio.sleep(wait)
-                                continue
-                            break  # Try next model
-
-                        if response.status_code == 404:
-                            logger.warning(f"[{label}] Model {model_name} returned 404. Trying next model.")
-                            break  # Try next model immediately
-
-                        response.raise_for_status()
-                        payload = response.json()
-
-                    # Inspect candidates and content
-                    candidates = payload.get("candidates") or []
-                    if not candidates:
-                        prompt_feedback = payload.get("promptFeedback", {})
-                        block_reason = prompt_feedback.get("blockReason", "")
-                        logger.warning(
-                            f"[{label}] Model {model_name} returned no candidates. "
-                            f"blockReason={block_reason}"
+                            },
                         )
-                        break  # Try next model
 
-                    candidate = candidates[0]
-                    finish_reason = candidate.get("finishReason", "STOP")
-                    if finish_reason in _TRUNCATED_FINISH_REASONS:
-                        logger.warning(
-                            f"[{label}] Model {model_name} response cut off. "
-                            f"finishReason={finish_reason}"
-                        )
-                        break  # Try next model
-
-                    parts_list = candidate.get("content", {}).get("parts", [])
-                    raw_text = parts_list[0].get("text", "") if parts_list else ""
-                    parsed = _extract_json_object(raw_text)
-                    if parsed:
-                        logger.info(f"[{label}] Success with model {model_name}")
-                        return parsed
-                    else:
-                        logger.warning(
-                            f"[{label}] Model {model_name} response did not contain "
-                            f"valid JSON: {raw_text[:150]}"
-                        )
-                        break  # Try next model
-
-                except httpx.HTTPStatusError as exc:
-                    last_error = exc
-                    logger.warning(f"[{label}] Model {model_name} HTTP error: {exc}")
-                    break  # Try next model
-
-                except (httpx.TimeoutException, httpx.NetworkError) as exc:
-                    last_error = exc
+                if response.status_code in {429, 500, 502, 503, 504}:
+                    wait = retry_waits[min(attempt, len(retry_waits) - 1)]
                     logger.warning(
-                        f"[{label}] Model {model_name} network/timeout error (attempt {attempt + 1}/2): {exc}"
+                        f"[{label}] {model} HTTP {response.status_code} "
+                        f"(attempt {attempt + 1}/4) — waiting {wait}s"
                     )
-                    if attempt < 1:
-                        await asyncio.sleep(0.5)
+                    if attempt < 3:
+                        await asyncio.sleep(wait)
                         continue
-                    break  # Try next model
+                    logger.error(f"[{label}] {model} HTTP {response.status_code} after 4 attempts — giving up")
+                    return None
 
-                except Exception as exc:
-                    last_error = exc
-                    logger.error(
-                        f"[{label}] Unexpected error with model {model_name}: {exc}",
-                        exc_info=True
-                    )
-                    break  # Try next model
-        
-        logger.error(f"[{label}] All Gemini candidate models failed to return parsed JSON.")
+                response.raise_for_status()
+                payload = response.json()
+
+                candidates_list = payload.get("candidates") or []
+                if not candidates_list:
+                    block = payload.get("promptFeedback", {}).get("blockReason", "")
+                    logger.warning(f"[{label}] {model} no candidates. blockReason={block}")
+                    return None
+
+                candidate = candidates_list[0]
+                finish = candidate.get("finishReason", "STOP")
+                if finish in {"MAX_TOKENS", "RECITATION", "SAFETY", "OTHER"}:
+                    logger.warning(f"[{label}] {model} response cut off: finishReason={finish}")
+                    return None
+
+                parts_list = candidate.get("content", {}).get("parts", [])
+                raw = parts_list[0].get("text", "") if parts_list else ""
+                parsed = _extract_json_object(raw)
+                if parsed:
+                    logger.info(f"[{label}] OK with {model}")
+                    # Track token usage for admin metrics
+                    if self.metrics is not None:
+                        self.metrics.gemini_input_tokens  += _estimate_tokens(prompt)
+                        self.metrics.gemini_output_tokens += _estimate_tokens(raw)
+                    return parsed
+                logger.warning(f"[{label}] {model} bad/empty JSON: {raw[:120]}")
+                return None
+
+            except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                wait = retry_waits[min(attempt, len(retry_waits) - 1)]
+                logger.warning(f"[{label}] {model} network/timeout (attempt {attempt + 1}/4): {exc}")
+                if attempt < 3:
+                    await asyncio.sleep(wait)
+                    continue
+                logger.error(f"[{label}] {model} network/timeout after 4 attempts — giving up")
+                return None
+            except Exception as exc:
+                logger.error(f"[{label}] {model} unexpected error: {exc}", exc_info=True)
+                return None
+
         return None
 
     # ------------------------------------------------------------------
-    # Turn translation helpers
+    # Transliteration + translation — the core fix
     # ------------------------------------------------------------------
 
-    async def _ensure_english_summary_content(self, result: FinalResult) -> FinalResult:
-        if _contains_non_ascii_letters(result.summary):
-            result.summary = await self._fallback_translate_text(result.summary)
+    async def _translate_all_turns(self, turns: list[TranscriptTurn]) -> list[TranscriptTurn]:
+        """
+        Translate and transliterate ALL turns that need it.
 
-        normalized_exec: list[ChunkSummary] = []
-        for item in result.executiveSynthesis:
-            text = item.text
-            if _contains_non_ascii_letters(text):
-                text = await self._fallback_translate_text(text)
-            normalized_exec.append(ChunkSummary(chunk_id=item.chunk_id, text=text))
-        result.executiveSynthesis = normalized_exec
+        Strategy:
+        1. Try Gemini in batches of 20 for speed (transliteration + translation).
+        2. For any turn that Gemini misses or still needs work, fall back to
+           GoogleTranslator (translation only — transliteration stays as-is or
+           is set equal to the translation as a proxy).
 
-        if not result.executiveSynthesis and result.summary:
-            result.executiveSynthesis = [ChunkSummary(chunk_id=1, text=result.summary)]
-
-        normalized_points: list[str] = []
-        for point in result.keyPoints:
-            if _contains_non_ascii_letters(point):
-                point = await self._fallback_translate_text(point)
-            point = point.strip()
-            if point and point not in normalized_points:
-                normalized_points.append(point)
-        result.keyPoints = normalized_points
-
-        if not result.keyPoints:
-            result.keyPoints = _fallback_key_points(result.turns)
-
-        return result
-
-    async def _repair_turn_translations(self, turns: list[TranscriptTurn]) -> list[TranscriptTurn]:
-        """Translate any turns that still have non-English text using GoogleTranslator."""
-        if not any(_needs_turn_translation(turn) for turn in turns):
+        This guarantees no turn gets cut off — every turn goes through at least
+        the GoogleTranslator path.
+        """
+        if not any(_needs_translation(t) for t in turns):
             return turns
 
-        repaired: list[TranscriptTurn] = []
-        for turn in turns:
-            if _needs_turn_translation(turn):
-                try:
-                    translated = await self._fallback_translate_text(turn.original)
-                    repaired.append(turn.model_copy(update={"translated": translated}))
-                except Exception:
-                    repaired.append(turn)
-            else:
-                repaired.append(turn)
-        return repaired
+        # Split into batches of 20 for Gemini
+        BATCH = 20
+        pending_indices = [i for i, t in enumerate(turns) if _needs_translation(t)]
 
-    async def _translate_turn_batch(self, batch: list[TranscriptTurn]) -> list[TranscriptTurn]:
-        translation_prompt = (
-            "You are an expert translation and transliteration engine. "
-            "Return only JSON with a top-level key named turns. For each input turn, preserve speaker, mu_id, timestamp, "
-            "and original exactly as given. Set transliterated to a Latin-script transliteration when original is not already in Latin script. "
-            "Set translated to a faithful English translation for every turn. "
-            "If original is already English, translated may match original. "
-            "If original is not English, translated must not repeat the source-language text.\n\n"
-            f"INPUT_JSON:\n{json.dumps({'turns': [turn.model_dump() for turn in batch]}, ensure_ascii=False)}"
-        )
+        # Gemini pass — send batches
+        gemini_results: dict[str, dict[str, str]] = {}  # mu_id → {transliterated, translated}
+        for batch_start in range(0, len(pending_indices), BATCH):
+            batch_idx = pending_indices[batch_start: batch_start + BATCH]
+            batch = [turns[i] for i in batch_idx]
 
-        try:
-            parsed = await self._request_json(translation_prompt, timeout=45.0, label="turn-translation-batch")
-        except RuntimeError as e:
-            logger.warning(f"Turn translation batch cancelled by Gemini: {e}. Falling back to single-turn mode.")
-            parsed = None
-        except Exception as e:
-            logger.error(f"Turn translation batch failed unexpectedly: {e}", exc_info=True)
-            parsed = None
-
-        repaired_batch: list[TranscriptTurn] = []
-        if parsed:
-            repaired_payload = _normalize_model_payload(parsed)
-            repaired_batch = [TranscriptTurn.model_validate(item) for item in repaired_payload.get("turns", [])]
-
-        if repaired_batch and not any(_needs_turn_translation(turn) for turn in repaired_batch):
-            return repaired_batch
-
-        if len(batch) == 1:
-            strict_single = await self._translate_single_turn_strict(batch[0])
-            return [strict_single]
-
-        fallback_repairs: list[TranscriptTurn] = []
-        for turn in batch:
-            single_result = await self._translate_turn_batch([turn])
-            fallback_repairs.extend(single_result)
-        return fallback_repairs
-
-    async def _translate_single_turn_strict(self, turn: TranscriptTurn) -> TranscriptTurn:
-        strict_prompt = (
-            "You are a translation and transliteration engine. Return only JSON with one top-level key named turns containing exactly one item. "
-            "Preserve speaker, mu_id, timestamp, original, start_time_seconds, end_time_seconds, duration_seconds, confidence, language, and languages exactly as given. "
-            "Set transliterated to Latin script. Set translated to English. "
-            "Do not repeat the source-language text in translated unless the original is already English.\n\n"
-            f"INPUT_JSON:\n{json.dumps({'turns': [turn.model_dump()]}, ensure_ascii=False)}"
-        )
-
-        try:
-            parsed = await self._request_json(strict_prompt, timeout=30.0, label="single-turn-translation")
-            if not parsed:
-                return turn
-            normalized_payload = _normalize_model_payload(parsed)
-            repaired_turns = [TranscriptTurn.model_validate(item) for item in normalized_payload.get("turns", [])]
-            if not repaired_turns:
-                return turn
-            repaired_turn = repaired_turns[0]
-            if _needs_turn_translation(repaired_turn):
-                fallback_translated = await self._fallback_translate_text(turn.original)
-                return turn.model_copy(update={"translated": fallback_translated})
-            return turn.model_copy(
-                update={
-                    "transliterated": repaired_turn.transliterated or turn.transliterated,
-                    "translated": repaired_turn.translated or turn.translated,
-                    "language": repaired_turn.language or turn.language,
-                    "languages": repaired_turn.languages or turn.languages,
-                }
+            lean = [
+                {"id": t.mu_id, "spk": t.speaker, "orig": t.original}
+                for t in batch
+            ]
+            prompt = (
+                "You are a translation and transliteration engine. "
+                "Return ONLY valid JSON: {\"turns\": [{\"id\": <mu_id>, "
+                "\"transliterated\": <Latin script>, \"translated\": <English>}, ...]}. "
+                "For every input turn: set transliterated to Latin-script romanisation of orig. "
+                "Set translated to fluent English. "
+                "If orig is already English/Latin, transliterated = orig and translated = orig. "
+                "Process ALL turns. No preamble.\n\n"
+                f"TURNS: {json.dumps(lean, ensure_ascii=False)}"
             )
-        except RuntimeError as e:
-            logger.warning(f"Single-turn translation cancelled by Gemini: {e}. Using GoogleTranslator fallback.")
-            fallback_translated = await self._fallback_translate_text(turn.original)
-            return turn.model_copy(update={"translated": fallback_translated})
-        except Exception:
-            fallback_translated = await self._fallback_translate_text(turn.original)
-            return turn.model_copy(update={"translated": fallback_translated})
+            try:
+                parsed = await self._request_json(prompt, timeout=45.0, label="batch-translate")
+                if parsed:
+                    for item in _ensure_list(parsed.get("turns")):
+                        if isinstance(item, dict) and item.get("id"):
+                            gemini_results[item["id"]] = {
+                                "transliterated": str(item.get("transliterated") or "").strip(),
+                                "translated": str(item.get("translated") or "").strip(),
+                            }
+            except Exception as e:
+                logger.error(f"Batch translate failed: {e}", exc_info=True)
+
+        # Apply Gemini results + GoogleTranslator fallback for anything missed
+        result_turns: list[TranscriptTurn] = []
+        for turn in turns:
+            if not _needs_translation(turn):
+                result_turns.append(turn)
+                continue
+
+            gemini = gemini_results.get(turn.mu_id, {})
+            g_translit = gemini.get("transliterated", "").strip()
+            g_translated = gemini.get("translated", "").strip()
+
+            # ── Translation ──────────────────────────────────────────
+            if g_translated and not _contains_non_ascii_letters(g_translated) and g_translated != turn.original:
+                translated = g_translated
+            else:
+                # GoogleTranslator fallback — always works, free, instant
+                try:
+                    translated = await self._google_translate(turn.original)
+                except Exception:
+                    translated = turn.translated or turn.original
+
+            # ── Transliteration ──────────────────────────────────────
+            # Priority: Gemini Latin → English translation as proxy → keep existing
+            # We NEVER leave the original non-Latin script in the transliteration field.
+            if g_translit and not _contains_non_ascii_letters(g_translit):
+                transliterated = g_translit
+            elif translated and not _contains_non_ascii_letters(translated) and translated != turn.original:
+                # Use English translation as transliteration proxy — far better than
+                # showing the original script when Gemini is unavailable
+                transliterated = translated
+            else:
+                transliterated = turn.transliterated  # keep whatever we had
+
+            result_turns.append(turn.model_copy(update={
+                "transliterated": transliterated or translated or turn.transliterated,
+                "translated": translated or turn.translated,
+            }))
+
+        gemini_hit = len(gemini_results)
+        total_pending = len(pending_indices)
+        if gemini_hit < total_pending:
+            logger.info(
+                f"Translation: Gemini covered {gemini_hit}/{total_pending} turns. "
+                f"{total_pending - gemini_hit} used GoogleTranslator fallback."
+            )
+        return result_turns
 
     # ------------------------------------------------------------------
-    # Executive synthesis — one ChunkSummary per audio chunk
+    # Summary generation (Gemini, no executive synthesis)
     # ------------------------------------------------------------------
 
-    async def _generate_chunk_executive_synthesis(
-        self,
-        chunk_results: list[ChunkTranscript],
-        turns: list[TranscriptTurn],
-        overall_summary: str,
-    ) -> list[ChunkSummary]:
-        """
-        Generate one executive synthesis paragraph per audio chunk.
-        Falls back to splitting the overall summary evenly if Gemini fails.
-        """
-        if not chunk_results:
-            if overall_summary:
-                return [ChunkSummary(chunk_id=1, text=overall_summary)]
-            return []
+    async def _generate_summary(self, merged: MergedTranscript, turns: list[TranscriptTurn]) -> tuple[str, list[str]]:
+        """Generate interview summary and key points. Returns (summary, keyPoints)."""
+        fallback = _fallback_summary(turns)
+        if not self.settings.gemini_api_key or not merged.transcript.strip():
+            return fallback, []
 
-        chunk_text_map = _build_chunk_text_map(chunk_results)
-
-        # Build a compact input: for each chunk send up to 400 chars of transcript
-        chunks_input = []
-        for chunk in chunk_results:
-            chunk_turns = _turns_for_chunk(turns, chunk)
-            turn_texts = [_summary_source_text(t) for t in chunk_turns[:6] if _summary_source_text(t).strip()]
-            chunks_input.append({
-                "chunk_id": chunk.chunk_id,
-                "start": f"{chunk.start_time:.0f}s",
-                "end": f"{chunk.end_time:.0f}s",
-                "excerpt": chunk_text_map.get(chunk.chunk_id, "")[:400],
-                "turns": turn_texts[:4],
-            })
-
+        sample_turns = turns[:20]
         prompt = (
             "You are a qualitative research analyst. "
-            "For EACH chunk, write one concise English executive synthesis paragraph (3-5 sentences). "
-            "Return ONLY valid JSON: {\"executiveSynthesis\": [{\"chunk_id\": <int>, \"text\": \"<synthesis>\"}]}. "
-            "One element per chunk. No preamble.\n\n"
-            f"SUMMARY: {overall_summary[:300]}\n\n"
-            f"CHUNKS:\n{json.dumps(chunks_input, ensure_ascii=False)}"
+            "Return ONLY valid JSON: {\"summary\": \"<2-4 sentence English summary>\", "
+            "\"keyPoints\": [\"<finding 1>\", ...]}. "
+            "keyPoints: 3-5 concise English strings. No preamble.\n\n"
+            f"TRANSCRIPT: {merged.transcript[:1500]}\n"
+            f"TURNS: {json.dumps([{'spk': t.speaker, 'text': t.translated or t.original} for t in sample_turns], ensure_ascii=False)}"
         )
-
         try:
-            parsed = await self._request_json(prompt, timeout=40.0, label="chunk-executive-synthesis")
+            parsed = await self._request_json(prompt, timeout=40.0, label="summary")
             if parsed:
-                raw_exec = _ensure_list(parsed.get("executiveSynthesis"))
-                result_summaries: list[ChunkSummary] = []
-                seen_ids: set[int] = set()
-                for item in raw_exec:
-                    if not isinstance(item, dict):
-                        continue
-                    cid = item.get("chunk_id")
-                    text = str(item.get("text") or "").strip()
-                    if isinstance(cid, int) and text and cid not in seen_ids:
-                        seen_ids.add(cid)
-                        result_summaries.append(ChunkSummary(chunk_id=cid, text=text))
-                if result_summaries:
-                    logger.info(
-                        f"Generated executive synthesis for {len(result_summaries)} chunk(s) "
-                        f"out of {len(chunk_results)} total."
-                    )
-                    return result_summaries
-            logger.warning("Chunk executive synthesis returned empty/invalid JSON — falling back.")
-        except RuntimeError as e:
-            logger.warning(
-                f"Chunk executive synthesis cancelled by Gemini (token limit or safety): {e}. "
-                "Will attempt smaller per-chunk calls."
-            )
+                summary = str(parsed.get("summary") or "").strip() or fallback
+                kp = [str(k).strip() for k in _ensure_list(parsed.get("keyPoints")) if str(k).strip()]
+                return summary, kp
         except Exception as e:
-            logger.error(f"Chunk executive synthesis failed: {e}", exc_info=True)
-
-        # Fallback: call Gemini once per chunk with a minimal prompt
-        return await self._generate_executive_synthesis_per_chunk(chunk_results, turns, overall_summary)
-
-    async def _generate_executive_synthesis_per_chunk(
-        self,
-        chunk_results: list[ChunkTranscript],
-        turns: list[TranscriptTurn],
-        overall_summary: str,
-    ) -> list[ChunkSummary]:
-        """Per-chunk fallback: one small Gemini call per chunk."""
-        summaries: list[ChunkSummary] = []
-        for chunk in chunk_results:
-            chunk_turns = _turns_for_chunk(turns, chunk)
-            turn_texts = [_summary_source_text(t) for t in chunk_turns[:6] if _summary_source_text(t).strip()]
-            excerpt = (chunk.transcript or "")[:400]
-
-            prompt = (
-                "You are a qualitative research analyst. "
-                f"Write ONE concise English paragraph (3-5 sentences) as the executive synthesis "
-                f"for audio chunk {chunk.chunk_id} (time {chunk.start_time:.0f}s-{chunk.end_time:.0f}s). "
-                "Return ONLY valid JSON: {\"chunk_id\": <int>, \"text\": \"<synthesis>\"}.\n\n"
-                f"EXCERPT: {excerpt}\n"
-                f"TURNS: {json.dumps(turn_texts, ensure_ascii=False)}"
-            )
-
-            try:
-                parsed = await self._request_json(prompt, timeout=30.0, label=f"exec-synthesis-chunk-{chunk.chunk_id}")
-                if parsed:
-                    text = str(parsed.get("text") or "").strip()
-                    if text:
-                        summaries.append(ChunkSummary(chunk_id=chunk.chunk_id, text=text))
-                        continue
-            except RuntimeError as e:
-                logger.warning(
-                    f"Per-chunk exec synthesis for chunk {chunk.chunk_id} cancelled by Gemini: {e}. "
-                    "Using GoogleTranslator excerpt as fallback."
-                )
-            except Exception as e:
-                logger.error(f"Per-chunk exec synthesis for chunk {chunk.chunk_id} failed: {e}", exc_info=True)
-
-            # Last-resort: use the raw excerpt (translated if needed)
-            fallback_text = excerpt or overall_summary or "Transcript segment generated."
-            if _contains_non_ascii_letters(fallback_text):
-                try:
-                    fallback_text = await self._fallback_translate_text(fallback_text)
-                except Exception:
-                    pass
-            summaries.append(ChunkSummary(chunk_id=chunk.chunk_id, text=fallback_text[:400]))
-
-        return summaries
-
-    # ------------------------------------------------------------------
-    # Overall interview summary
-    # ------------------------------------------------------------------
-
-    async def _generate_interview_summary(self, result: FinalResult, merged: MergedTranscript) -> FinalResult:
-        fallback_summary = _fallback_interview_summary(result.turns)
-        if not self.settings.gemini_api_key or not merged.transcript.strip():
-            if not result.summary:
-                result.summary = fallback_summary
-            if not result.executiveSynthesis:
-                result.executiveSynthesis = await self._generate_chunk_executive_synthesis(
-                    merged.chunk_results, result.turns, result.summary
-                )
-            return result
-
-        summary_turns = result.turns[:20]
-        truncated_transcript = merged.transcript[:1500]
-        summary_prompt = (
-            "You are a qualitative research analyst. "
-            "Return only JSON with keys: summary, keyPoints. "
-            "summary: concise English summary of the interview (2-4 sentences). "
-            "keyPoints: array of 3-5 concise English strings with key findings. "
-            "Do not repeat raw transcript lines verbatim.\n\n"
-            f"INPUT_JSON:\n{json.dumps({'transcript': truncated_transcript, 'languages': merged.languages, 'turns': [turn.model_dump() for turn in summary_turns]}, ensure_ascii=False)}"
-        )
-
-        try:
-            parsed = await self._request_json(summary_prompt, timeout=45.0, label="interview-summary")
-            if not parsed:
-                logger.warning("Gemini summary generation returned empty response")
-                raise ValueError("No summary payload returned")
-
-            normalized_payload = _normalize_model_payload(parsed)
-            summary = str(normalized_payload.get("summary") or "").strip() or fallback_summary
-            key_points = normalized_payload.get("keyPoints") or []
-
-            result.summary = summary
-            result.keyPoints = [str(item).strip() for item in key_points if str(item).strip()]
-        except RuntimeError as e:
-            logger.warning(
-                f"Interview summary cancelled by Gemini (token limit or safety): {e}. "
-                "Using fallback summary."
-            )
-            if not result.summary:
-                result.summary = fallback_summary
-        except Exception as e:
-            logger.error(f"Gemini summary generation failed: {e}", exc_info=True)
-            if not result.summary:
-                result.summary = fallback_summary
-
-        return result
-
-    # ------------------------------------------------------------------
-    # Full pipeline entry point (transcript + summary)
-    # ------------------------------------------------------------------
-
-    async def build_transcript_ready_result(self, merged: MergedTranscript, *, include_summary: bool = False) -> FinalResult:
-        result = self.build_default_result(merged)
-        if not self.settings.gemini_api_key or not merged.transcript.strip():
-            result.summary = result.summary or _fallback_interview_summary(result.turns)
-            if not result.executiveSynthesis and result.summary:
-                result.executiveSynthesis = [ChunkSummary(chunk_id=1, text=result.summary)]
-            return result
-
-        if not include_summary:
-            result.summary = ""
-            result.executiveSynthesis = []
-            # Fast GoogleTranslator pass so the 80% partial result shows English
-            fast_turns: list[TranscriptTurn] = []
-            for turn in result.turns:
-                if _looks_untranslated(turn.original, turn.translated) and _contains_non_ascii_letters(turn.original):
-                    try:
-                        fallback = await self._fallback_translate_text(turn.original)
-                        fast_turns.append(turn.model_copy(update={"translated": fallback}))
-                    except Exception:
-                        fast_turns.append(turn)
-                else:
-                    fast_turns.append(turn)
-            result.turns = fast_turns
-            return result
-
-        # include_summary=True: send combined prompt for translation + summary
-        combined_turns = result.turns[:100]
-        combined_transcript = merged.transcript[:10000]
-        combined_prompt = (
-            "You are an expert translation, transliteration, and interview summarization engine. "
-            "Return only JSON with keys: turns."#, summary, keyPoints. "
-            "For every turn, preserve speaker, mu_id, timestamp, start_time_seconds, end_time_seconds, "
-            "duration_seconds, confidence, language, and languages. "
-            "Keep original exactly as given. "
-            "IMPORTANT: transliterated MUST contain ONLY Latin (English) characters. "
-            "Never return Hindi, Tamil, Telugu, Malayalam or any native script in transliterated. "
-            "If the original is Hindi 'वह उसका प्रशिक्षण लिए हैं ना आपने?', the transliterated value MUST be "
-            "'Wah uska prashikshan liye hain na aapne?'. "
-            "Set translated to fluent English. If not English, translated must not repeat source text. "
-            #"summary: 2-4 sentence English summary. "
-            #"keyPoints: array of 3-5 concise English findings.\n\n"
-            f"INPUT_JSON:\n{json.dumps({'transcript': combined_transcript, 'language': merged.language, 'languages': merged.languages, 'turns': [turn.model_dump() for turn in combined_turns]}, ensure_ascii=False)}"
-        )
-        try:
-            parsed = await self._request_json(combined_prompt, timeout=60.0, label="combined-translation-summary")
-            if parsed:
-                normalized_payload = _normalize_model_payload(parsed)
-                repaired_turns = [TranscriptTurn.model_validate(item) for item in normalized_payload.get("turns", [])]
-                result.turns = _merge_turn_repairs(result.turns, repaired_turns)
-            #    result.summary = normalized_payload.get("summary", "")
-             #   result.keyPoints = normalized_payload.get("keyPoints", [])
-                result.detected_language = merged.detected_language or merged.language
-                result.languages = merged.languages
-                result.language_metadata = merged.language_metadata
-                result.chunk_results = merged.chunk_results
-            else:
-                logger.warning("Combined prompt returned empty response — will fall back to separate summary call.")
-        except RuntimeError as e:
-            logger.warning(
-                f"Combined prompt cancelled by Gemini (token limit or safety): {e}. "
-                "Will fall back to separate summary call."
-            )
-        except httpx.HTTPStatusError as e:
-            logger.warning(
-                f"Combined prompt HTTP {e.response.status_code} after retries — falling back to separate summary call."
-            )
-        except Exception as e:
-            logger.error(f"Combined prompt failed unexpectedly: {e}", exc_info=True)
-
-        try:
-            result.turns = await self._repair_turn_translations(result.turns)
-        except Exception as e:
-            logger.error(f"Turn translation repair failed: {e}", exc_info=True)
-
-        normalized_turns: list[TranscriptTurn] = []
-        for turn in result.turns:
-            if _looks_untranslated(turn.original, turn.translated) and _contains_non_ascii_letters(turn.original):
-                fallback_translated = await self._fallback_translate_text(turn.original)
-                normalized_turns.append(turn.model_copy(update={"translated": fallback_translated}))
-            else:
-                normalized_turns.append(turn)
-        result.turns = normalized_turns
-
-     #   try:
-     #     if not result.summary:
-     #           result = await self._generate_interview_summary(result, merged)
-     #   except Exception as e:
-     #       logger.error(f"Interview summary generation failed: {e}", exc_info=True)
-
-        # Generate per-chunk executive synthesis if not already populated
-    #    if not result.executiveSynthesis:
-    #        try:
-    #            result.executiveSynthesis = await self._generate_chunk_executive_synthesis(
-    #                merged.chunk_results, result.turns, result.summary
-    #            )
-    #        except Exception as e:
-    #            logger.error(f"Chunk executive synthesis failed: {e}", exc_info=True)
-    #            if result.summary:
-    #                result.executiveSynthesis = [ChunkSummary(chunk_id=1, text=result.summary)]
-
-    #    result = await self._ensure_english_summary_content(result)
-
-        return result
+            logger.error(f"Summary generation failed: {e}", exc_info=True)
+        return fallback, []
 
     # ------------------------------------------------------------------
     # Default result builder
@@ -799,14 +431,64 @@ class GeminiArtifactService:
             )
             for index, segment in enumerate(merged.speakers)
         ]
-
         return FinalResult(
             turns=base_turns,
             executiveSynthesis=[],
-            summary="",#_fallback_interview_summary(base_turns),
+            summary=_fallback_summary(base_turns),
             keyPoints=[],
             detected_language=merged.detected_language or merged.language,
             languages=merged.languages,
             language_metadata=merged.language_metadata,
             chunk_results=merged.chunk_results,
         )
+
+    # ------------------------------------------------------------------
+    # Main entry point
+    # ------------------------------------------------------------------
+
+    async def generate(self, merged: MergedTranscript) -> FinalResult:
+        result = self.build_default_result(merged)
+
+        # 1. Translate + transliterate ALL turns
+        try:
+            result.turns = await self._translate_all_turns(result.turns)
+        except Exception as e:
+            logger.error(f"Translation pass failed: {e}", exc_info=True)
+
+        # 2. Generate summary
+        try:
+            summary, key_points = await self._generate_summary(merged, result.turns)
+            result.summary = summary
+            result.keyPoints = key_points
+        except Exception as e:
+            logger.error(f"Summary failed: {e}", exc_info=True)
+
+        result.detected_language = merged.detected_language or merged.language
+        result.languages = merged.languages
+        result.language_metadata = merged.language_metadata
+        result.chunk_results = merged.chunk_results
+
+        # 3. Populate metrics from result
+        if self.metrics is not None:
+            self.metrics.detected_language = result.detected_language or ""
+            scripts: set[str] = set()
+            for t in result.turns:
+                s = _detect_script(t.original)
+                if s:
+                    scripts.add(s)
+            self.metrics.script_used = ", ".join(sorted(scripts)) if scripts else ""
+            self.metrics.num_transcript_turns = len(result.turns)
+            translated_turns = [t for t in result.turns if t.translated and t.translated != t.original]
+            translit_turns   = [t for t in result.turns if t.transliterated and t.transliterated != t.original]
+            self.metrics.translation_generated     = len(translated_turns) > 0
+            self.metrics.transliteration_generated = len(translit_turns) > 0
+            self.metrics.executive_summary_generated = bool(result.summary)
+            self.metrics.num_speakers = len({t.speaker for t in result.turns})
+
+        return result
+
+    # Keep backward-compat alias used by pipeline.py
+    async def build_transcript_ready_result(
+        self, merged: MergedTranscript, *, include_summary: bool = False
+    ) -> FinalResult:
+        return await self.generate(merged)
