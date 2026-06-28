@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -11,6 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Merriweather:ital,wght@0,400;0,700;1,400;1,700&family=Noto+Sans+Devanagari:wght@400;700&family=Noto+Sans+Gurmukhi:wght@400;700&family=Noto+Sans+Kannada:wght@400;700&family=Noto+Sans+Tamil:wght@400;700&family=Noto+Sans+Telugu:wght@400;700&family=Noto+Sans+Oriya:wght@400;700&family=Noto+Sans+Bengali:wght@400;700&display=swap" rel="stylesheet">
   <script>
     tailwind.config = {
+      darkMode: 'class',
       theme: {
         extend: {
           fontFamily: {
@@ -98,7 +98,7 @@
 }
 </script>
 </head>
-<body class="bg-slate-50 text-slate-900 min-h-screen selection:bg-violet-100 selection:text-violet-900">
+<body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen selection:bg-violet-100 selection:text-violet-900 transition-colors duration-300">
   <div class="fixed inset-0 -z-10 overflow-hidden pointer-events-none">
     <div class="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] bg-violet-200/30 blur-[120px] rounded-full animate-float"></div>
     <div class="absolute top-[20%] -right-[5%] w-[30%] h-[30%] bg-fuchsia-200/20 blur-[100px] rounded-full animate-float" style="animation-delay: -2s"></div>

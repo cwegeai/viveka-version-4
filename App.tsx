@@ -23,6 +23,7 @@ import logo2 from './assets/icons/amrita-logo.png';
 import logo3 from './assets/icons/cwege_logo_black.png';
 
 const Dashboard: React.FC = () => {
+  const [showProfile, setShowProfile] = useState(false);
   const [result, setResult] = useState<TranscriptionResult | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | undefined>();
   const [originalFile, setOriginalFile] = useState<File | undefined>();
@@ -34,6 +35,23 @@ const Dashboard: React.FC = () => {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [processingTimeTaken, setProcessingTimeTaken] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<'upload' | 'record'>('upload');
+  const [isDark, setIsDark] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('viveka-theme') === 'dark' ||
+        (!localStorage.getItem('viveka-theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('viveka-theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('viveka-theme', 'light');
+    }
+  }, [isDark]);
   const sessionRef = useRef(0);
   const activeRequestRef = useRef<AbortController | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -144,12 +162,12 @@ const Dashboard: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#fbfcfd] text-slate-900 font-sans flex flex-col">
+    <div className="min-h-screen bg-[#fbfcfd] dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans flex flex-col transition-colors duration-300">
       {/* HEADER: Responsive stacking for Mobile */}
       <header className="w-full max-w-[95rem] mx-auto px-4 md:px-8 py-4 md:py-6 flex flex-col md:flex-row justify-between items-center gap-6 shrink-0">
         <div className="text-center md:text-left">
-          <h1 className="text-3xl md:text-4xl font-black tracking-tight text-[#1e293b]">Viveka AI</h1>
-          <p className="text-[#64748b] font-bold tracking-[0.15em] text-[10px] md:text-[11px] uppercase">Qualitative Verbatim Specialist</p>
+          <h1 className="text-3xl md:text-4xl font-black tracking-tight text-[#1e293b] dark:text-white">Viveka AI</h1>
+          <p className="text-[#64748b] dark:text-slate-400 font-bold tracking-[0.15em] text-[10px] md:text-[11px] uppercase">Qualitative Verbatim Specialist</p>
         </div>
         
         <div className="flex flex-col items-center gap-6 md:flex-row md:gap-12">
@@ -164,16 +182,37 @@ const Dashboard: React.FC = () => {
                 Switch to Admin
               </button>
             )}
-            <button onClick={() => navigate('/my-profile')} className="px-4 md:px-6 py-2 md:py-3 bg-white border border-slate-200 text-slate-600 rounded-xl text-[10px] md:text-[11px] font-black uppercase tracking-widest shadow-sm hover:border-violet-400">
+            <button onClick={() => setShowProfile(true)} className="px-4 md:px-6 py-2 md:py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-xl text-[10px] md:text-[11px] font-black uppercase tracking-widest shadow-sm hover:border-violet-400 transition-all">
               My Profile
             </button>
+
+            {/* Dark mode toggle */}
+            <button
+              onClick={() => setIsDark(d => !d)}
+              title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+              className="px-3 py-2 md:py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-xl shadow-sm hover:border-violet-400 transition-all flex items-center gap-1.5"
+            >
+              {isDark ? (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M17.657 17.657l-.707-.707M6.343 6.343l-.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                </svg>
+              )}
+              <span className="text-[10px] font-black uppercase tracking-widest hidden md:inline">
+                {isDark ? 'Light' : 'Dark'}
+              </span>
+            </button>
+
             <button 
               onClick={() => {
                 api.logout();
                 clearAuthStorage();
                 navigate('/login');
               }}
-              className="px-4 md:px-6 py-2 md:py-3 bg-white border border-slate-200 text-slate-600 rounded-xl text-[10px] md:text-[11px] font-black uppercase tracking-widest hover:text-rose-600 shadow-sm"
+              className="px-4 md:px-6 py-2 md:py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-xl text-[10px] md:text-[11px] font-black uppercase tracking-widest hover:text-rose-600 shadow-sm transition-all"
             >
               Logout
             </button>
@@ -187,18 +226,18 @@ const Dashboard: React.FC = () => {
           <div className="flex flex-col gap-6 md:gap-8">
             {/* WELCOME HEADER */}
             <div className="text-center">
-              <h2 className="text-2xl md:text-4xl font-extrabold text-[#0f172a] mb-2">Welcome to Viveka AI 👋</h2>
-              <p className="text-slate-500 max-w-2xl mx-auto text-sm md:text-base">
+              <h2 className="text-2xl md:text-4xl font-extrabold text-[#0f172a] dark:text-white mb-2">Welcome to Viveka AI 👋</h2>
+              <p className="text-slate-500 dark:text-slate-400 max-w-2xl mx-auto text-sm md:text-base">
                 High-Fidelity Qualitative Research. Viveka helps you process recordings into transcription, 
                 transliteration, translation, and basic analysis — automatically.
               </p>
             </div>
 
-            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 md:p-5">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm p-4 md:p-5">
               <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4">
                 <div className="flex-1">
-                  <p className="font-bold text-slate-900 text-xs md:text-sm mb-1">Backend Transcription Pipeline</p>
-                  <p className="text-slate-500 text-[11px] md:text-xs">Deepgram handles server-side transcription. Gemini generates translation and summary after chunk merge.</p>
+                  <p className="font-bold text-slate-900 dark:text-white text-xs md:text-sm mb-1">Backend Transcription Pipeline</p>
+                  <p className="text-slate-500 dark:text-slate-400 text-[11px] md:text-xs">Deepgram handles server-side transcription. Gemini generates translation and summary after chunk merge.</p>
                 </div>
                 <div className={`px-4 py-3 rounded-xl text-[10px] md:text-[11px] font-black uppercase tracking-widest shadow-sm ${backendPipelineConfigured ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
                   {backendPipelineConfigured ? 'Pipeline Ready' : 'Pipeline Not Configured'}
@@ -208,27 +247,27 @@ const Dashboard: React.FC = () => {
 
             {/* BEST PRACTICES CARDS: Stacks on Mobile */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
-              <div className="bg-white p-4 md:p-5 rounded-2xl border border-slate-100 flex items-start gap-4 shadow-sm">
-                <div className="w-10 h-10 md:w-12 md:h-12 bg-slate-50 rounded-xl flex items-center justify-center shrink-0 border border-slate-100 text-lg md:text-xl">⚖️</div>
+              <div className="bg-white dark:bg-slate-800 p-4 md:p-5 rounded-2xl border border-slate-100 dark:border-slate-700 flex items-start gap-4 shadow-sm">
+                <div className="w-10 h-10 md:w-12 md:h-12 bg-slate-50 dark:bg-slate-700 rounded-xl flex items-center justify-center shrink-0 border border-slate-100 dark:border-slate-600 text-lg md:text-xl">⚖️</div>
                 <div>
-                  <p className="font-bold text-slate-900 text-xs md:text-sm mb-1">File Limit:</p>
-                  <p className="text-slate-500 text-[11px] md:text-xs leading-relaxed">Large uploads are accepted through chunked transfer. Backend is designed for long-form chunked processing.</p>
+                  <p className="font-bold text-slate-900 dark:text-white text-xs md:text-sm mb-1">File Limit:</p>
+                  <p className="text-slate-500 dark:text-slate-400 text-[11px] md:text-xs leading-relaxed">Large uploads are accepted through chunked transfer. Backend is designed for long-form chunked processing.</p>
                 </div>
               </div>
 
-              <div className="bg-white p-4 md:p-5 rounded-2xl border border-slate-100 flex items-start gap-4 shadow-sm">
-                <div className="w-10 h-10 md:w-12 md:h-12 bg-slate-50 rounded-xl flex items-center justify-center shrink-0 border border-slate-100 text-lg md:text-xl">✂️</div>
+              <div className="bg-white dark:bg-slate-800 p-4 md:p-5 rounded-2xl border border-slate-100 dark:border-slate-700 flex items-start gap-4 shadow-sm">
+                <div className="w-10 h-10 md:w-12 md:h-12 bg-slate-50 dark:bg-slate-700 rounded-xl flex items-center justify-center shrink-0 border border-slate-100 dark:border-slate-600 text-lg md:text-xl">✂️</div>
                 <div>
-                  <p className="font-bold text-slate-900 text-xs md:text-sm mb-1">For Speed:</p>
-                  <p className="text-slate-500 text-[11px] md:text-xs leading-relaxed">The backend normalizes audio, creates 10-minute chunks, and processes them in parallel.</p>
+                  <p className="font-bold text-slate-900 dark:text-white text-xs md:text-sm mb-1">For Speed:</p>
+                  <p className="text-slate-500 dark:text-slate-400 text-[11px] md:text-xs leading-relaxed">The backend normalizes audio, creates 10-minute chunks, and processes them in parallel.</p>
                 </div>
               </div>
 
-              <div className="bg-white p-4 md:p-5 rounded-2xl border border-slate-100 flex items-start gap-4 shadow-sm">
-                <div className="w-10 h-10 md:w-12 md:h-12 bg-slate-50 rounded-xl flex items-center justify-center shrink-0 border border-slate-100 text-lg md:text-xl">⏸️</div>
+              <div className="bg-white dark:bg-slate-800 p-4 md:p-5 rounded-2xl border border-slate-100 dark:border-slate-700 flex items-start gap-4 shadow-sm">
+                <div className="w-10 h-10 md:w-12 md:h-12 bg-slate-50 dark:bg-slate-700 rounded-xl flex items-center justify-center shrink-0 border border-slate-100 dark:border-slate-600 text-lg md:text-xl">⏸️</div>
                 <div>
-                  <p className="font-bold text-slate-900 text-xs md:text-sm mb-1">Recording Tip:</p>
-                  <p className="text-slate-500 text-[11px] md:text-xs leading-relaxed">Live recordings still work, and longer source files now process directly through the backend transcription pipeline without relying on the Redis worker queue.</p>
+                  <p className="font-bold text-slate-900 dark:text-white text-xs md:text-sm mb-1">Recording Tip:</p>
+                  <p className="text-slate-500 dark:text-slate-400 text-[11px] md:text-xs leading-relaxed">Live recordings still work, and longer source files now process directly through the backend transcription pipeline without relying on the Redis worker queue.</p>
                 </div>
               </div>
             </div>
@@ -237,35 +276,35 @@ const Dashboard: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
               <div 
                 onClick={() => setActiveTab('upload')}
-                className={`cursor-pointer p-5 md:p-6 rounded-[1.5rem] md:rounded-[2rem] border-2 transition-all flex items-center gap-4 md:gap-6 ${activeTab === 'upload' ? 'border-violet-500 bg-white shadow-xl md:scale-[1.02]' : 'border-transparent bg-slate-50/50 hover:bg-white'}`}
+                className={`cursor-pointer p-5 md:p-6 rounded-[1.5rem] md:rounded-[2rem] border-2 transition-all flex items-center gap-4 md:gap-6 ${activeTab === 'upload' ? 'border-violet-500 bg-white dark:bg-slate-800 shadow-xl md:scale-[1.02]' : 'border-transparent bg-slate-50/50 dark:bg-slate-800/50 hover:bg-white dark:hover:bg-slate-800'}`}
               >
                 <div className="w-12 h-12 md:w-16 md:h-16 bg-[#0f172a] rounded-xl md:rounded-2xl flex items-center justify-center text-white shrink-0 shadow-lg">
                   <svg className="w-6 h-6 md:w-8 md:h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                 </div>
                 <div>
-                  <h4 className="text-xl md:text-2xl font-bold text-slate-900 leading-tight">File Upload</h4>
-                  <p className="text-slate-400 text-xs md:text-sm mt-1">Submit audio → auto-analyze</p>
+                  <h4 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white leading-tight">File Upload</h4>
+                  <p className="text-slate-400 dark:text-slate-500 text-xs md:text-sm mt-1">Submit audio → auto-analyze</p>
                 </div>
               </div>
 
               <div 
                 onClick={() => setActiveTab('record')}
-                className={`cursor-pointer p-5 md:p-6 rounded-[1.5rem] md:rounded-[2rem] border-2 transition-all flex items-center gap-4 md:gap-6 ${activeTab === 'record' ? 'border-violet-500 bg-white shadow-xl md:scale-[1.02]' : 'border-transparent bg-slate-50/50 hover:bg-white'}`}
+                className={`cursor-pointer p-5 md:p-6 rounded-[1.5rem] md:rounded-[2rem] border-2 transition-all flex items-center gap-4 md:gap-6 ${activeTab === 'record' ? 'border-violet-500 bg-white dark:bg-slate-800 shadow-xl md:scale-[1.02]' : 'border-transparent bg-slate-50/50 dark:bg-slate-800/50 hover:bg-white dark:hover:bg-slate-800'}`}
               >
                 <div className="w-12 h-12 md:w-16 md:h-16 bg-violet-600 rounded-xl md:rounded-2xl flex items-center justify-center text-white shrink-0 shadow-lg">
                   <svg className="w-6 h-6 md:w-8 md:h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
                 </div>
                 <div>
-                  <h4 className="text-xl md:text-2xl font-bold text-slate-900 leading-tight">Live Recording</h4>
-                  <p className="text-slate-400 text-xs md:text-sm mt-1">Record in the Live Studio</p>
+                  <h4 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white leading-tight">Live Recording</h4>
+                  <p className="text-slate-400 dark:text-slate-500 text-xs md:text-sm mt-1">Record in the Live Studio</p>
                 </div>
               </div>
             </div>
 
             {/* BELOW BOX: Responsive minimum height */}
-            <div className="min-h-[400px] md:min-h-[550px] bg-white rounded-[2rem] md:rounded-[3rem] border border-slate-100 shadow-2xl shadow-slate-200/50 flex flex-col items-center justify-center overflow-hidden">
+            <div className="min-h-[400px] md:min-h-[550px] bg-white dark:bg-slate-900 rounded-[2rem] md:rounded-[3rem] border border-slate-100 dark:border-slate-800 shadow-2xl shadow-slate-200/50 dark:shadow-none flex flex-col items-center justify-center overflow-hidden">
                 {isProcessing ? (
-  <div className="w-full max-w-lg text-center p-6 md:p-12 animate-fade-in">
+  <div className="w-full max-w-lg text-center p-6 md:p-12 animate-fade-in bg-white/50 dark:bg-slate-900/50 rounded-3xl">
 
     {originalFile && (
       <div className="flex items-center justify-center gap-2 mb-5">
@@ -281,11 +320,11 @@ const Dashboard: React.FC = () => {
       </div>
     )}
 
-    <h2 className="text-lg md:text-xl font-black uppercase text-[#1e293b] mb-5 tracking-tighter leading-tight">
+    <h2 className="text-lg md:text-xl font-black uppercase text-[#1e293b] dark:text-white mb-5 tracking-tighter leading-tight">
       {status}
     </h2>
 
-    <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden border border-slate-200 mb-3 shadow-inner">
+    <div className="w-full h-3 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden border border-slate-200 dark:border-slate-700 mb-3 shadow-inner">
       <div
         className="h-full bg-violet-600 rounded-full transition-all duration-700"
         style={{ width: `${Math.max(2, progress)}%` }}
@@ -293,7 +332,7 @@ const Dashboard: React.FC = () => {
     </div>
 
     {/* Stage labels under progress bar */}
-    <div className="flex justify-between text-[9px] font-black uppercase tracking-widest text-slate-300 mb-5 px-0.5">
+    <div className="flex justify-between text-[9px] font-black uppercase tracking-widest text-slate-300 dark:text-slate-600 mb-5 px-0.5">
       <span className={progress >= 5  ? 'text-violet-400' : ''}>Upload</span>
       <span className={progress >= 35 ? 'text-violet-400' : ''}>Transcribe</span>
       <span className={progress >= 75 ? 'text-violet-400' : ''}>Merge</span>
@@ -326,10 +365,10 @@ const Dashboard: React.FC = () => {
         <div className="flex items-center justify-center gap-4 mb-5">
           <div className="flex items-center gap-2">
             <span className="w-1.5 h-1.5 bg-violet-500 rounded-full animate-pulse shrink-0"></span>
-            <span className="text-slate-500 text-sm font-bold font-mono">{fmt(elapsedSeconds)}</span>
-            <span className="text-slate-300 text-xs">elapsed</span>
+            <span className="text-slate-500 dark:text-slate-400 text-sm font-bold font-mono">{fmt(elapsedSeconds)}</span>
+            <span className="text-slate-300 dark:text-slate-600 text-xs">elapsed</span>
           </div>
-          <span className="text-slate-200">|</span>
+          <span className="text-slate-200 dark:text-slate-700">|</span>
           <div className="text-xs font-bold font-mono">
             {etaSec !== null ? (
               <span className="text-violet-500">~{fmt(etaSec)} remaining</span>
@@ -341,7 +380,7 @@ const Dashboard: React.FC = () => {
       );
     })()}
 
-    <p className="text-slate-400 text-xs italic font-semibold mb-8">
+    <p className="text-slate-400 dark:text-slate-500 text-xs italic font-semibold mb-8">
       {progress < 25 ? 'Uploading audio file...'
         : progress < 70 ? 'Transcribing audio in parallel chunks...'
         : progress < 85 ? 'Merging chunk transcripts...'
@@ -350,7 +389,7 @@ const Dashboard: React.FC = () => {
 
     <button
       onClick={restartSession}
-      className="px-8 py-3 rounded-xl border border-rose-300 text-rose-600 font-bold hover:bg-rose-50 transition"
+      className="px-8 py-3 rounded-xl border border-rose-300 dark:border-rose-800 text-rose-600 dark:text-rose-400 font-bold hover:bg-rose-50 dark:hover:bg-rose-900/20 transition"
     >
       Cancel & Restart
     </button>
@@ -369,7 +408,7 @@ const Dashboard: React.FC = () => {
   {(originalFile || audioUrl) && (
     <button
       onClick={restartSession}
-      className="px-8 py-3 rounded-xl border border-rose-300 text-rose-600 font-bold hover:bg-rose-50 transition"
+      className="px-8 py-3 rounded-xl border border-rose-300 dark:border-rose-800 text-rose-600 dark:text-rose-400 font-bold hover:bg-rose-50 dark:hover:bg-rose-900/20 transition"
     >
       Restart
     </button>
@@ -387,9 +426,20 @@ const Dashboard: React.FC = () => {
       </main>
 
       {/* FOOTER */}
-      <footer className="mt-auto py-4 md:py-6 text-center text-slate-400 text-[10px] md:text-[11px] font-black uppercase tracking-widest border-t border-slate-100 bg-white px-4">
+      <footer className="mt-auto py-4 md:py-6 text-center text-slate-400 dark:text-slate-600 text-[10px] md:text-[11px] font-black uppercase tracking-widest border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-950 px-4">
         Version 2.0 | High-Fidelity Qualitative Research Protocol
       </footer>
+
+      {/* Profile overlay — renders over the app without unmounting it */}
+      {showProfile && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="absolute inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-sm" onClick={() => setShowProfile(false)} />
+          <div className="relative min-h-screen">
+            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+            {React.createElement(UserProfile as any, { onClose: () => setShowProfile(false) })}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

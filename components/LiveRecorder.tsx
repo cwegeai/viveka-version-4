@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 
 interface LiveRecorderProps {
@@ -83,8 +82,8 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({ onRecordingComplete,
   };
 
   return (
-    <div className="w-full max-w-2xl mx-auto p-1 bg-white rounded-[3.5rem] transition-all duration-500 overflow-hidden shadow-2xl">
-      <div className="m-2 bg-white rounded-[3rem] p-12 sm:p-16 flex flex-col items-center justify-center space-y-10">
+    <div className="w-full max-w-2xl mx-auto p-1 bg-white dark:bg-slate-900 rounded-[3.5rem] transition-all duration-500 overflow-hidden shadow-2xl dark:shadow-none">
+      <div className="m-2 bg-white dark:bg-slate-900 rounded-[3rem] p-12 sm:p-16 flex flex-col items-center justify-center space-y-10">
         <div className="flex flex-col items-center space-y-2">
           {isRecording ? (
             <div className="flex items-center gap-3 px-6 py-2 bg-rose-50 border border-rose-100 rounded-full">
@@ -92,14 +91,14 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({ onRecordingComplete,
               <span className="text-[10px] font-black text-rose-600 uppercase tracking-[0.3em]">Recording Active</span>
             </div>
           ) : (
-            <div className="flex items-center gap-3 px-6 py-2 bg-slate-50 border border-slate-100 rounded-full">
-              <span className="w-3 h-3 bg-slate-300 rounded-full"></span>
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Studio Ready</span>
+            <div className="flex items-center gap-3 px-6 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-full">
+              <span className="w-3 h-3 bg-slate-300 dark:bg-slate-600 rounded-full"></span>
+              <span className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.3em]">Studio Ready</span>
             </div>
           )}
         </div>
 
-        <div className="text-7xl sm:text-8xl font-black text-slate-900 tracking-tighter tabular-nums">
+        <div className="text-7xl sm:text-8xl font-black text-slate-900 dark:text-white tracking-tighter tabular-nums">
           {formatTime(duration)}
         </div>
 
@@ -120,7 +119,7 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({ onRecordingComplete,
           ) : (
             <button
               onClick={stopRecording}
-              className="w-32 h-32 bg-slate-900 text-white rounded-[3rem] flex items-center justify-center transition-all duration-500 hover:bg-rose-600 hover:scale-110 active:scale-95 shadow-2xl shadow-slate-900/30"
+              className="w-32 h-32 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-[3rem] flex items-center justify-center transition-all duration-500 hover:bg-rose-600 dark:hover:bg-rose-500 dark:hover:text-white hover:scale-110 active:scale-95 shadow-2xl shadow-slate-900/30"
             >
               <svg className="w-12 h-12" fill="currentColor" viewBox="0 0 24 24">
                 <rect x="7" y="7" width="10" height="10" rx="2" />
@@ -129,7 +128,7 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({ onRecordingComplete,
           )}
           
           <div className="absolute -bottom-10 left-1/2 -translate-x-1/2 w-max">
-             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
                {isRecording ? "Stop & Transcribe" : "Start Live Session"}
              </span>
           </div>
@@ -137,13 +136,13 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({ onRecordingComplete,
         {isRecording && (
   <button
     onClick={discardRecording}
-    className="mt-4 px-6 py-3 rounded-xl border border-rose-200 bg-rose-50 text-rose-600 font-bold text-sm hover:bg-rose-100 transition shadow-sm"
+    className="mt-4 px-6 py-3 rounded-xl border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 font-bold text-sm hover:bg-rose-100 dark:hover:bg-rose-900/40 transition shadow-sm"
   >
     Discard Recording
   </button>
 )}
 
-        <p className="text-slate-500 font-bold text-sm text-center pt-8 max-w-xs leading-relaxed">
+        <p className="text-slate-500 dark:text-slate-400 font-bold text-sm text-center pt-8 max-w-xs leading-relaxed">
           Record your ideas, interviews, or voice notes directly. We'll handle the rest.
         </p>
       </div>

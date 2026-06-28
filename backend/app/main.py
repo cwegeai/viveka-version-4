@@ -633,6 +633,24 @@ def _require_admin(authorization: str | None) -> UserRecord:
     return user
 
 
+@app.get("/api/my-activity")
+async def my_activity(
+    limit: int = 50,
+    authorization: str | None = Header(default=None),
+):
+    """Return the current user's own transcription activity history."""
+    token = _extract_bearer_token(authorization)
+    if not token or not settings.database_url:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    user = await asyncio.to_thread(auth_repository.get_user_by_session_token, token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid session.")
+    rows = await asyncio.to_thread(
+        activity_repository.list_activity, user.id, limit, 0
+    )
+    return JSONResponse({"activity": rows, "count": len(rows)})
+
+
 @app.get("/api/admin/dashboard")
 async def admin_dashboard(authorization: str | None = Header(default=None)):
     """Section 8 — Dashboard Metrics."""
