@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 
 interface LiveRecorderProps {
@@ -82,7 +83,7 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({ onRecordingComplete,
   };
 
   return (
-    <div className="w-full max-w-2xl mx-auto p-1 bg-white dark:bg-slate-900 rounded-[3.5rem] transition-all duration-500 overflow-hidden shadow-2xl dark:shadow-none">
+    <div className="w-full max-w-2xl mx-auto p-1 bg-white dark:bg-slate-900 rounded-[3.5rem] transition-all duration-500 overflow-hidden shadow-2xl dark:bg-slate-none">
       <div className="m-2 bg-white dark:bg-slate-900 rounded-[3rem] p-12 sm:p-16 flex flex-col items-center justify-center space-y-10">
         <div className="flex flex-col items-center space-y-2">
           {isRecording ? (
@@ -136,7 +137,7 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({ onRecordingComplete,
         {isRecording && (
   <button
     onClick={discardRecording}
-    className="mt-4 px-6 py-3 rounded-xl border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 font-bold text-sm hover:bg-rose-100 dark:hover:bg-rose-900/40 transition shadow-sm"
+    className="mt-4 px-6 py-3 rounded-xl border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-900/20 text-rose-600 font-bold text-sm dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition shadow-sm"
   >
     Discard Recording
   </button>
