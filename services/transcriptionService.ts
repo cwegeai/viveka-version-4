@@ -14,6 +14,7 @@ type PipelineEventPayload = {
   stage?: string;
   message?: string;
   progress?: number;
+  session_id?: string;
   result?: Partial<TranscriptionResult>;
 };
 
@@ -69,7 +70,7 @@ const parseTrailingEventBlock = (buffer: string) => {
   }
 };
 
-const normalizeBackendResult = (result?: Partial<TranscriptionResult>): TranscriptionResult => ({
+const normalizeBackendResult = (result?: Partial<TranscriptionResult>,session_id?: string): TranscriptionResult => ({
   turns: result?.turns || [],
   executiveSynthesis: result?.executiveSynthesis || [],
   summary: result?.summary || "",
@@ -84,6 +85,7 @@ const normalizeBackendResult = (result?: Partial<TranscriptionResult>): Transcri
   languages: result?.languages || [],
   language_metadata: result?.language_metadata || {},
   chunk_results: result?.chunk_results || [],
+  session_id:session_id,
 });
 
 const consumeSseResponse = async (
@@ -119,12 +121,12 @@ const consumeSseResponse = async (
       }
 
       if (event.event === "result" && event.payload.result) {
-        partialResult = normalizeBackendResult(event.payload.result);
+        partialResult = normalizeBackendResult(event.payload.result, event.payload.session_id);
         onPartialResult?.(partialResult);
       }
 
       if (event.event === "complete" && event.payload.result) {
-        finalResult = normalizeBackendResult(event.payload.result);
+        finalResult = normalizeBackendResult(event.payload.result,event.payload.session_id);
       }
     }
   };
@@ -314,12 +316,18 @@ export const transcribeAudio = async (
         }
 
         if (event.event === "result" && event.payload.result) {
-          partialResult = normalizeBackendResult(event.payload.result);
+          partialResult = normalizeBackendResult(
+              event.payload.result,
+              event.payload.session_id
+          );
           onPartialResult?.(partialResult);
         }
 
         if (event.event === "complete" && event.payload.result) {
-          finalResult = normalizeBackendResult(event.payload.result);
+          finalResult = normalizeBackendResult(
+              event.payload.result,
+              event.payload.session_id
+          );
         }
       }
     };
@@ -373,12 +381,18 @@ export const transcribeAudio = async (
         }
 
         if (event.event === "result" && event.payload.result) {
-          partialResult = normalizeBackendResult(event.payload.result);
+          partialResult = normalizeBackendResult(
+              event.payload.result,
+              event.payload.session_id
+          );
           onPartialResult?.(partialResult);
         }
 
         if (event.event === "complete" && event.payload.result) {
-          finalResult = normalizeBackendResult(event.payload.result);
+          finalResult = normalizeBackendResult(
+              event.payload.result,
+              event.payload.session_id
+          );
         }
       }
 
