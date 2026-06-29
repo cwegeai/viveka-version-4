@@ -20,8 +20,8 @@ const TranscriptView: React.FC<{ result: TranscriptionResult }> = ({ result }) =
   <div className="max-w-4xl mx-auto space-y-12 bg-white dark:bg-slate-950">
     {result.summary && (
       <div className="space-y-4">
-        <h3 className="text-3xl font-black text-slate-900 dark:text-white border-b-8 border-slate-900 dark:border-white pb-3 uppercase tracking-tighter">Summary</h3>
-        <div className="text-xl leading-relaxed text-slate-800 dark:text-slate-200 font-serif text-justify bg-slate-50 dark:bg-slate-900 p-6 rounded-2xl border border-slate-100 dark:border-slate-800">
+        <h3 className="text-3xl font-black text-slate-900 border-b-8 border-slate-900 pb-3 uppercase tracking-tighter">Summary</h3>
+        <div className="text-xl leading-relaxed text-slate-800 font-serif text-justify bg-slate-50 p-6 rounded-2xl border border-slate-100">
           {result.summary}
         </div>
         {(result.keyPoints?.length ?? 0) > 0 && (
@@ -39,15 +39,15 @@ const TranscriptView: React.FC<{ result: TranscriptionResult }> = ({ result }) =
 
     <div className="pt-10 space-y-12">
       <div className="flex items-end justify-between border-b-8 border-slate-900 pb-3">
-        <h3 className="text-3xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Verbatim Record</h3>
+        <h3 className="text-3xl font-black text-slate-900 uppercase tracking-tighter">Verbatim Record</h3>
         <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.5em] pb-1">Zero-Loss Sync v8.0</span>
       </div>
       <div className="space-y-16">
         {result.turns.map((turn, idx) => (
           <div key={idx} className="space-y-6 group relative">
-            <div className="flex items-center gap-4 bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-100 dark:border-slate-700 transition-all group-hover:bg-slate-100/50 dark:group-hover:bg-slate-700/50">
+            <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-100 transition-all group-hover:bg-slate-100/50">
               <div className="flex items-center gap-2">
-                <span className="font-black text-slate-900 dark:text-white uppercase text-base tracking-tight">{s(turn.speaker)}</span>
+                <span className="font-black text-slate-900 uppercase text-base tracking-tight">{s(turn.speaker)}</span>
                 <span className="text-slate-300">•</span>
                 <span className="text-xs font-black uppercase tracking-[0.2em] text-violet-600">MU {s(turn.mu_id)}</span>
               </div>
@@ -60,18 +60,18 @@ const TranscriptView: React.FC<{ result: TranscriptionResult }> = ({ result }) =
             </div>
 
             <div className="flex flex-wrap gap-3 pl-8 -mt-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
-              <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 px-3 py-2 rounded-xl">Start: {turn.timestamp}</span>
-              <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 px-3 py-2 rounded-xl">End: {formatSecondsForPdf(turn.end_time_seconds)}</span>
-              <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 px-3 py-2 rounded-xl">Duration: {Math.max(turn.duration_seconds ?? 0, 0).toFixed(1)}s</span>
+              <span className="bg-slate-100 px-3 py-2 rounded-xl">Start: {turn.timestamp}</span>
+              <span className="bg-slate-100 px-3 py-2 rounded-xl">End: {formatSecondsForPdf(turn.end_time_seconds)}</span>
+              <span className="bg-slate-100 px-3 py-2 rounded-xl">Duration: {Math.max(turn.duration_seconds ?? 0, 0).toFixed(1)}s</span>
               {typeof turn.confidence === 'number' && (
-                <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 px-3 py-2 rounded-xl">Accuracy: {(turn.confidence * 100).toFixed(1)}%</span>
+                <span className="bg-slate-100 px-3 py-2 rounded-xl">Accuracy: {(turn.confidence * 100).toFixed(1)}%</span>
               )}
             </div>
 
             <div className="pl-8 space-y-6 border-l-8 border-slate-50 group-hover:border-violet-200 transition-colors">
               <div className="space-y-3">
                  <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Original</p>
-                 <div className="text-4xl font-bold text-slate-900 dark:text-white leading-snug indian-script">{s(turn.original)}</div>
+                 <div className="text-4xl font-bold text-slate-900 leading-snug indian-script">{s(turn.original)}</div>
               </div>
               
               {turn.transliterated && (
@@ -147,13 +147,13 @@ const DownloadBtn: React.FC<{ onClick: () => void; label: string }> = ({ onClick
 
 const ArtifactHeader: React.FC<{ title: string; onDownload: () => void }> = ({ title, onDownload }) => (
   <div className="flex items-end justify-between border-b-8 border-slate-900 pb-3">
-    <h3 className="text-3xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">{title}</h3>
+    <h3 className="text-3xl font-black text-slate-900 uppercase tracking-tighter">{title}</h3>
     <DownloadBtn onClick={onDownload} label="Download JSON" />
   </div>
 );
 
 const EmptyState: React.FC<{ label: string }> = ({ label }) => (
-  <div className="py-8 text-center text-slate-400 text-sm italic bg-slate-50 dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">
+  <div className="py-8 text-center text-slate-400 text-sm italic bg-slate-50 rounded-2xl border border-dashed border-slate-200">
     {label}
   </div>
 );
@@ -165,7 +165,7 @@ const ArtifactsView: React.FC<{ result: TranscriptionResult }> = ({ result }) =>
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
       </svg>
     </div>
-    <h3 className="text-3xl font-black text-slate-900 dark:text-white uppercase tracking-tighter mb-3">AWESOME Artifacts</h3>
+    <h3 className="text-3xl font-black text-slate-900 uppercase tracking-tighter mb-3">AWESOME Artifacts</h3>
     <div className="flex items-center gap-2 mb-6">
       <span className="px-4 py-1.5 bg-amber-100 text-amber-700 text-[10px] font-black uppercase tracking-widest rounded-full border border-amber-200">
         Coming Soon
@@ -176,7 +176,7 @@ const ArtifactsView: React.FC<{ result: TranscriptionResult }> = ({ result }) =>
     </p>
     <div className="mt-10 grid grid-cols-2 md:grid-cols-3 gap-3 w-full max-w-lg">
       {['Evidence Matrix', 'Context Matrix', 'Mechanism Chains', 'Link Map', 'Hotspots', 'Strategies'].map((label) => (
-        <div key={label} className="bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl p-4 text-center opacity-50">
+        <div key={label} className="bg-slate-50 border border-slate-100 rounded-2xl p-4 text-center opacity-50">
           <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{label}</p>
         </div>
       ))}
@@ -251,6 +251,7 @@ const normalizeSpeakerLabel = (speaker: string) => {
 };
 
 export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalFileName, onRestart, processingTimeTaken }) => {
+  const sessionId = result.session_id;
   const [activeTab, setActiveTab] = useState<'transcript' | 'artifacts'>('transcript');
   const [isExporting, setIsExporting] = useState(false);
   const [isSendingEmail, setIsSendingEmail] = useState(false);
@@ -361,6 +362,7 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
       formData.append('filename', fileName);
       formData.append('original_filename', originalFileName || '');
       formData.append('pdf', new File([blob], fileName, { type: 'application/pdf' }));
+      formData.append("session_id", sessionId || "");
       const apiBase = TRANSCRIPTION_API_URL?.replace('/api/transcribe', '') || '';
       const res = await fetch(`${apiBase}/api/send-pdf`, {
         method: 'POST',
@@ -407,6 +409,19 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
       });
       const blob = await Packer.toBlob(doc);
       saveAs(blob, `Viveka_${(originalFileName || 'Transcript').replace(/\.[^/.]+$/, '')}.docx`);
+      const apiBase = TRANSCRIPTION_API_URL?.replace("/api/transcribe", "") || "";
+
+      if (sessionId) {
+        await fetch(
+          `${apiBase}/api/admin/activity/${sessionId}/flag?flag=doc_downloaded`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${getAccessToken() || ""}`,
+            },
+          }
+        );
+      }
     } catch (err) {
       console.error(err);
       alert('Word export failed. Make sure docx and file-saver are installed:\nnpm install docx file-saver');
@@ -773,7 +788,20 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
         .slice(0, 40);
       const fileName = `Viveka_${safeFilename}_${Date.now()}.pdf`;
       pdf.save(fileName);
+      const apiBase = TRANSCRIPTION_API_URL?.replace("/api/transcribe", "") || "";
 
+      if (sessionId) {
+        await fetch(
+          `${apiBase}/api/admin/activity/${sessionId}/flag?flag=pdf_dossier_downloaded`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${getAccessToken() || ""}`,
+            },
+          }
+        );
+      }
+      
       const blob = pdf.output('blob');
       try {
         await uploadToMinio(new File([blob], fileName, { type: 'application/pdf' }));
@@ -791,7 +819,7 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
 
   return (
     <div className="space-y-8 animate-fade-in pb-20">
-      <div className="flex flex-col md:flex-row justify-between items-center gap-6 bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] shadow-sm border border-slate-100 dark:border-slate-800">
+      <div className="flex flex-col md:flex-row justify-between items-center gap-6 bg-white dark:bg-slate-950 p-6 rounded-[2.5rem] shadow-sm border border-slate-100">
         <div className="flex items-center gap-5">
            <div className="p-4 bg-violet-100 rounded-3xl text-violet-600 shadow-inner">
              <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -799,7 +827,7 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
              </svg>
            </div>
            <div>
-             <h2 className="text-lg font-black text-slate-900 dark:text-white tracking-tight leading-tight truncate max-w-[280px]" title={originalFileName || 'Research Archive'}>{originalFileName || 'Research Archive'}</h2>
+             <h2 className="text-lg font-black text-slate-900 tracking-tight leading-tight truncate max-w-[280px]" title={originalFileName || 'Research Archive'}>{originalFileName || 'Research Archive'}</h2>
              <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full shrink-0"></span>
                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.15em]">High-Fidelity Verbatim Sync Active</p>
@@ -815,10 +843,10 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
         {/* Tab switcher + export actions — two-row layout to prevent overflow */}
         <div className="flex flex-col gap-3 items-end shrink-0">
           {/* Row 1: Tab switcher */}
-          <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl shadow-inner">
+          <div className="flex p-1 bg-slate-100 rounded-xl shadow-inner">
             <button
               onClick={() => setActiveTab('transcript')}
-              className="px-5 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest bg-white dark:bg-slate-700 shadow text-slate-900 dark:text-white"
+              className="px-5 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest bg-white dark:bg-slate-950 shadow text-slate-900"
             >Transcript</button>
             <button
               disabled
@@ -859,9 +887,27 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
 
             {/* CSV */}
             <button
-              onClick={() => {
-                const base = (originalFileName || 'transcript').replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40);
-                downloadCsv(result.turns, `${base}_transcript.csv`);
+              onClick={async () => {
+                  const base = (originalFileName || "transcript")
+                      .replace(/\.[^/.]+$/, "")
+                      .replace(/[^a-zA-Z0-9_-]/g, "_")
+                      .slice(0, 40);
+
+                  downloadCsv(result.turns, `${base}_transcript.csv`);
+
+                  const apiBase = TRANSCRIPTION_API_URL?.replace("/api/transcribe", "") || "";
+
+                  if (sessionId) {
+                      await fetch(
+                          `${apiBase}/api/admin/activity/${sessionId}/flag?flag=csv_downloaded`,
+                          {
+                              method: "POST",
+                              headers: {
+                                  Authorization: `Bearer ${getAccessToken() || ""}`,
+                              },
+                          }
+                      );
+                  }
               }}
               title="Download CSV Transcript"
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest bg-emerald-600 text-white hover:bg-emerald-700 transition-all shadow active:scale-95"
@@ -893,9 +939,9 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
         </div>
       )}
 
-      <div className="bg-white dark:bg-slate-950 rounded-[4.5rem] shadow-2xl shadow-slate-200/50 dark:shadow-none border border-slate-100 dark:border-slate-800 p-12 md:p-24 overflow-hidden relative min-h-[600px]">
+      <div className="bg-white dark:bg-slate-950 rounded-[4.5rem] shadow-2xl shadow-slate-200/50 border border-slate-100 p-12 md:p-24 overflow-hidden relative min-h-[600px]">
         {audioUrl && (
-          <div className="mb-8 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900">
+          <div className="mb-8 p-4 rounded-2xl border border-slate-100 bg-slate-50">
             <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Session Audio</p>
             <audio controls src={audioUrl} className="w-full" />
           </div>
