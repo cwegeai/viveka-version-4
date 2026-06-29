@@ -50,6 +50,8 @@ interface ActivityRow {
   transliteration_generated?: boolean;
   email_sent?: boolean;
   pdf_dossier_downloaded?: boolean;
+  doc_downloaded?: boolean;
+  csv_downloaded?: boolean;
   gemini_input_tokens?: number;
   gemini_output_tokens?: number;
   gemini_cost_usd?: number;
@@ -326,7 +328,7 @@ export const AdminConsole: React.FC = () => {
               <table className="w-full text-left text-sm">
                 <thead className="bg-slate-50 border-b border-slate-100">
                   <tr>
-                    {['Date', 'User', 'File', 'Format', 'Size', 'Audio', 'Status', 'Duration', 'Language', 'Speakers', 'Turns', 'Translated', 'Translit', 'Email', 'PDF', 'Tokens In', 'Tokens Out', 'Cost'].map(h => (
+                    {['Date', 'User', 'File', 'Format', 'Size', 'Audio', 'Status', 'Duration', 'Language', 'Speakers', 'Turns', 'Translated', 'Translit', 'Email', 'PDF','Doc','CSV', 'Tokens In', 'Tokens Out', 'Cost'].map(h => (
                       <th key={h} className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -357,6 +359,8 @@ export const AdminConsole: React.FC = () => {
                       <td className="px-4 py-3"><Badge ok={!!row.transliteration_generated} /></td>
                       <td className="px-4 py-3"><Badge ok={!!row.email_sent} /></td>
                       <td className="px-4 py-3"><Badge ok={!!row.pdf_dossier_downloaded} /></td>
+                      <td className="px-4 py-3"><Badge ok={!!row.doc_downloaded} /></td>
+                      <td className="px-4 py-3"><Badge ok={!!row.csv_downloaded} /></td>
                       <td className="px-4 py-3 text-xs font-mono text-slate-500">{fmt.tokens(row.gemini_input_tokens)}</td>
                       <td className="px-4 py-3 text-xs font-mono text-slate-500">{fmt.tokens(row.gemini_output_tokens)}</td>
                       <td className="px-4 py-3 text-xs font-bold text-rose-600">{fmt.cost(row.gemini_cost_usd)}</td>
