@@ -100,6 +100,8 @@ class TranscriptionMetrics:
     # --- artifacts (all false — generation removed) ---
     executive_summary_generated: bool = False
     pdf_dossier_downloaded:      bool = False
+    doc_downloaded:              bool = False
+    csv_downloaded:              bool = False
 
     # --- exports ---
     email_sent:          bool = False
@@ -203,6 +205,8 @@ class ActivityRepository:
                         -- Analysis Artifacts
                         executive_summary_generated BOOLEAN DEFAULT FALSE,
                         pdf_dossier_downloaded    BOOLEAN DEFAULT FALSE,
+                        doc_downloaded            BOOLEAN DEFAULT FALSE,
+                        csv_downloaded            BOOLEAN DEFAULT FALSE,    
 
                         -- Export Actions
                         email_sent                BOOLEAN DEFAULT FALSE,
@@ -219,6 +223,16 @@ class ActivityRepository:
                         gemini_output_tokens      INT DEFAULT 0,
                         gemini_cost_usd           NUMERIC(12,6) DEFAULT 0
                     )
+                """)
+
+                cur.execute("""
+                    ALTER TABLE transcription_activity
+                    ADD COLUMN IF NOT EXISTS doc_downloaded BOOLEAN DEFAULT FALSE
+                """)
+
+                cur.execute("""
+                    ALTER TABLE transcription_activity
+                    ADD COLUMN IF NOT EXISTS csv_downloaded BOOLEAN DEFAULT FALSE
                 """)
 
                 cur.execute("""
@@ -300,6 +314,7 @@ class ActivityRepository:
             self.ensure_schema()
             with self._connect() as conn:
                 with conn.cursor() as cur:
+                    print("record_transcription is running")
                     cur.execute("""
                         INSERT INTO transcription_activity (
                             id, user_id, user_email, created_at,
@@ -311,6 +326,7 @@ class ActivityRepository:
                             translation_generated, transliteration_generated,
                             num_speakers, num_transcript_turns,
                             executive_summary_generated, pdf_dossier_downloaded,
+                            doc_downloaded,csv_downloaded,    
                             email_sent, synced_google_drive, synced_google_sheets,
                             user_agent, ip_address, device_type,
                             gemini_input_tokens, gemini_output_tokens, gemini_cost_usd
@@ -320,6 +336,7 @@ class ActivityRepository:
                             %s, %s,
                             %s, %s, %s,
                             %s, %s, %s, %s,
+                            %s, %s,
                             %s, %s,
                             %s, %s,
                             %s, %s,
@@ -341,6 +358,8 @@ class ActivityRepository:
                             num_transcript_turns       = EXCLUDED.num_transcript_turns,
                             executive_summary_generated = EXCLUDED.executive_summary_generated,
                             pdf_dossier_downloaded     = EXCLUDED.pdf_dossier_downloaded,
+                            doc_downloaded             = EXCLUDED.doc_downloaded,
+                            csv_downloaded             = EXCLUDED.csv_downloaded,
                             email_sent                 = EXCLUDED.email_sent,
                             synced_google_drive        = EXCLUDED.synced_google_drive,
                             synced_google_sheets       = EXCLUDED.synced_google_sheets,
@@ -357,6 +376,7 @@ class ActivityRepository:
                         m.translation_generated, m.transliteration_generated,
                         m.num_speakers, m.num_transcript_turns,
                         m.executive_summary_generated, m.pdf_dossier_downloaded,
+                        m.doc_downloaded,m.csv_downloaded,
                         m.email_sent, m.synced_google_drive, m.synced_google_sheets,
                         m.user_agent, m.ip_address, m.device_type,
                         m.gemini_input_tokens, m.gemini_output_tokens, round(m.gemini_cost_usd, 6),
@@ -370,6 +390,7 @@ class ActivityRepository:
         """Flip a single boolean export/artifact flag after the fact."""
         allowed = {
             "pdf_dossier_downloaded", "email_sent",
+            "doc_downloaded","csv_downloaded",
             "synced_google_drive", "synced_google_sheets",
             "executive_summary_generated",
         }
