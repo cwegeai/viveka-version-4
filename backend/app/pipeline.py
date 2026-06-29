@@ -242,6 +242,7 @@ class PipelineRunner:
                 "stage": PipelineStage.result.value,
                 "message": "Transcript ready.",
                 "progress": 95,
+                "session_id": self.metrics.session_id if self.metrics else None,
                 "result": final_result.model_dump(),
             },
         )
@@ -253,6 +254,7 @@ class PipelineRunner:
                 "stage": PipelineStage.complete.value,
                 "message": "Transcription complete.",
                 "progress": 100,
+                "session_id": self.metrics.session_id if self.metrics else None,
                 "result": final_result.model_dump(),
             },
         )
