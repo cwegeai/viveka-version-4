@@ -45,11 +45,11 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessi
         setIsDragging(false);
         if (!isProcessing && e.dataTransfer.files[0]) validateAndSelect(e.dataTransfer.files[0]);
       }}
-      className={`relative w-full max-w-2xl mx-auto p-1 bg-white dark:bg-slate-900 rounded-[3rem] transition-colors
-        ${isDragging ? 'ring-2 ring-violet-500 ring-offset-4 dark:ring-offset-slate-950' : 'shadow-2xl shadow-slate-200/50 dark:shadow-none'}
+      className={`relative w-full max-w-2xl mx-auto p-1 dark:shadow-none rounded-[3rem]
+        ${isDragging ? 'ring-2 ring-violet-500 ring-offset-4 dark:ring-offset-slate-950' : 'shadow-2xl shadow-slate-200/50'}
       `}
     >
-      <div className="m-3 border-4 border-dashed border-slate-200 dark:border-slate-700 rounded-[2.5rem] p-16">
+      <div className="m-3 border-slate-200 dark:border-slate-700 rounded-[2.5rem] p-16">
         <input
           type="file"
           ref={fileInputRef}
@@ -84,7 +84,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessi
           {selectedFile && (
             <button
               onClick={handleRestart}
-              className="px-6 py-3 rounded-xl border border-rose-300 dark:border-rose-800 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 font-bold transition-colors"
+              className="px-6 py-3 rounded-xl border border-rose-300  dark:border-rose-800  text-rose-600  dark:text-rose-400  hover:bg-rose-50  dark:hover:bg-rose-900/20  transition-colors font-bold"
             >
               Restart
             </button>
