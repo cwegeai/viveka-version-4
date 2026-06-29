@@ -344,6 +344,7 @@ async def api_send_pdf(
     recipient_email: str = Form(...),
     filename: str = Form(...),
     original_filename: str = Form(default=""),
+    session_id: str = Form(...),
     pdf: UploadFile = File(...),
     authorization: str | None = Header(default=None),
 ):
@@ -360,6 +361,13 @@ async def api_send_pdf(
             filename,
             original_filename,
         )
+        if settings.database_url:
+            await asyncio.to_thread(
+                activity_repository.update_export_flag,
+                session_id,
+                "email_sent",
+                True,
+            )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
@@ -632,7 +640,6 @@ def _require_admin(authorization: str | None) -> UserRecord:
         raise HTTPException(status_code=403, detail="Admin access required.")
     return user
 
-
 @app.get("/api/my-activity")
 async def my_activity(
     limit: int = 50,
@@ -649,7 +656,6 @@ async def my_activity(
         activity_repository.list_activity, user.id, limit, 0
     )
     return JSONResponse({"activity": rows, "count": len(rows)})
-
 
 @app.get("/api/admin/dashboard")
 async def admin_dashboard(authorization: str | None = Header(default=None)):
@@ -719,6 +725,6 @@ async def admin_flag_export(
     authorization: str | None = Header(default=None),
 ):
     """Update a single export/artifact boolean flag on an activity record."""
-    _require_admin(authorization)
+    await _get_current_user(authorization)
     await asyncio.to_thread(activity_repository.update_export_flag, session_id, flag, value)
     return JSONResponse({"ok": True})
