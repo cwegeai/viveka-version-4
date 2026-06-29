@@ -103,4 +103,5 @@ export interface TranscriptionResult {
   languages?: string[];
   language_metadata?: Record<string, unknown>;
   chunk_results?: ChunkTranscript[];
+  session_id?: string;
 }
