@@ -357,23 +357,23 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
       const safeBase2 = (originalFileName || 'session').replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 40);
       const fileName = `Viveka_${safeBase2}_${Date.now()}.pdf`;
       const blob = pdf.output('blob');
-      const formData = new FormData();
-      formData.append('recipient_email', recipientEmail);
-      formData.append('filename', fileName);
-      formData.append('original_filename', originalFileName || '');
-      formData.append('pdf', new File([blob], fileName, { type: 'application/pdf' }));
-      formData.append("session_id", sessionId || "");
-      const apiBase = TRANSCRIPTION_API_URL?.replace('/api/transcribe', '') || '';
-      const res = await fetch(`${apiBase}/api/send-pdf`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${getAccessToken() || ''}` },
-        body: formData,
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
-        throw new Error(err.detail || `HTTP ${res.status}`);
-      }
-      setEmailStatus(`Dossier sent to ${recipientEmail}`);
+      // const formData = new FormData();
+      // formData.append('recipient_email', recipientEmail);
+      // formData.append('filename', fileName);
+      // formData.append('original_filename', originalFileName || '');
+      // formData.append('pdf', new File([blob], fileName, { type: 'application/pdf' }));
+      // formData.append("session_id", sessionId || "");
+      // const apiBase = TRANSCRIPTION_API_URL?.replace('/api/transcribe', '') || '';
+      // const res = await fetch(`${apiBase}/api/send-pdf`, {
+      //   method: 'POST',
+      //   headers: { Authorization: `Bearer ${getAccessToken() || ''}` },
+      //   body: formData,
+      // });
+      // if (!res.ok) {
+      //   const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
+      //   throw new Error(err.detail || `HTTP ${res.status}`);
+      // }
+      // setEmailStatus(`Dossier sent to ${recipientEmail}`);
     } catch (err: any) {
       setEmailStatus(`Failed: ${err.message}`);
     } finally {
@@ -918,17 +918,15 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
 
             {/* Email */}
             <button
-              onClick={sendByEmail}
-              disabled={isSendingEmail}
-              title="Email Dossier"
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow active:scale-95
-                ${isSendingEmail ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-violet-600 text-white hover:bg-violet-700'}`}
-            >
+                disabled
+                title="Email Dossier (Coming Soon)"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest bg-slate-200 text-slate-400 cursor-not-allowed shadow"
+              >
               {isSendingEmail
                 ? <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                 : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
               }
-              Email
+              Email(coming soon)
             </button>
           </div>
         </div>
