@@ -32,8 +32,8 @@ from .config import Settings
 # ---------------------------------------------------------------------------
 # Gemini 2.5 Flash pricing (USD per token, as of 2025)
 # ---------------------------------------------------------------------------
-_INPUT_COST_PER_TOKEN  = 0.15  / 1_000_000   # $0.15 / 1M input tokens
-_OUTPUT_COST_PER_TOKEN = 0.60  / 1_000_000   # $0.60 / 1M output tokens
+_INPUT_COST_PER_TOKEN  = 0.75  / 1_000_000   # $0.15 / 1M input tokens
+_OUTPUT_COST_PER_TOKEN = 4.00  / 1_000_000   # $0.60 / 1M output tokens
 _CHARS_PER_TOKEN       = 4                    # rough approximation
 
 
@@ -132,7 +132,7 @@ class TranscriptionMetrics:
 
     def add_gemini_call(self, prompt: str, response_text: str) -> None:
         """Call after every Gemini response to accumulate token estimates."""
-        self.gemini_input_tokens  += _estimate_tokens(prompt)
+        
         self.gemini_output_tokens += _estimate_tokens(response_text)
 
 
@@ -473,23 +473,49 @@ class ActivityRepository:
                 with conn.cursor() as cur:
                     cur.execute("""
                         SELECT
-                            u.id, u.email, u.full_name, u.role,
-                            u.affiliation, u.nationality_name,
+                            u.id,
+                            u.email,
+                            u.full_name,
+                            u.role,
+                            u.affiliation,
+                            u.nationality_name,
                             u.created_at,
-                            COUNT(ta.id)                               AS total_files,
-                            COALESCE(SUM(ta.audio_duration_mins), 0)  AS total_audio_mins,
-                            COALESCE(SUM(ta.gemini_input_tokens), 0)  AS total_input_tokens,
-                            COALESCE(SUM(ta.gemini_output_tokens), 0) AS total_output_tokens,
-                            COALESCE(SUM(ta.gemini_cost_usd), 0)      AS total_cost_usd,
-                            MAX(ta.created_at)                         AS last_active_at,
-                            MAX(s.login_at)                            AS last_login_at
+
+                            COALESCE(ta.total_files, 0)         AS total_files,
+                            COALESCE(ta.total_audio_mins, 0)    AS total_audio_mins,
+                            COALESCE(ta.total_input_tokens, 0)  AS total_input_tokens,
+                            COALESCE(ta.total_output_tokens, 0) AS total_output_tokens,
+                            COALESCE(ta.total_cost_usd, 0)      AS total_cost_usd,
+                            ta.last_active_at,
+                            s.last_login_at
+
                         FROM app_users u
-                        LEFT JOIN transcription_activity ta
-                            ON ta.user_id = u.id
-                            OR (ta.user_id IS NULL AND ta.user_email = u.email)
-                        LEFT JOIN auth_sessions s ON s.user_id = u.id
-                        GROUP BY u.id
-                        ORDER BY last_active_at DESC NULLS LAST
+
+                        LEFT JOIN (
+                            SELECT
+                                user_id,
+                                COUNT(*) AS total_files,
+                                SUM(audio_duration_mins) AS total_audio_mins,
+                                SUM(gemini_input_tokens) AS total_input_tokens,
+                                SUM(gemini_output_tokens) AS total_output_tokens,
+                                SUM(gemini_cost_usd) AS total_cost_usd,
+                                MAX(created_at) AS last_active_at
+                            FROM transcription_activity
+                            GROUP BY user_id
+                        ) ta
+                        ON ta.user_id = u.id
+
+                        LEFT JOIN (
+                            SELECT
+                                user_id,
+                                MAX(login_at) AS last_login_at
+                            FROM auth_sessions
+                            GROUP BY user_id
+                        ) s
+                        ON s.user_id = u.id
+
+                        ORDER BY ta.last_active_at DESC NULLS LAST
+
                         LIMIT %s OFFSET %s
                     """, (limit, offset))
                     rows = cur.fetchall()
