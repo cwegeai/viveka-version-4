@@ -339,41 +339,47 @@ async def auth_me(authorization: str | None = Header(default=None)):
     }
 
 
-@app.post("/api/send-pdf")
-async def api_send_pdf(
-    recipient_email: str = Form(...),
-    filename: str = Form(...),
-    original_filename: str = Form(default=""),
-    session_id: str = Form(...),
-    pdf: UploadFile = File(...),
-    authorization: str | None = Header(default=None),
-):
-    await _get_current_user(authorization)
-    pdf_bytes = await pdf.read()
-    if not pdf_bytes:
-        raise HTTPException(status_code=400, detail="PDF file is empty.")
-    try:
-        await asyncio.to_thread(
-            send_pdf_email,
-            settings,
-            recipient_email,
-            pdf_bytes,
-            filename,
-            original_filename,
-        )
-        if settings.database_url:
-            await asyncio.to_thread(
-                activity_repository.update_export_flag,
-                session_id,
-                "email_sent",
-                True,
-            )
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to send email: {exc}") from exc
-    return {"message": f"Dossier sent to {recipient_email}."}
+# @app.post("/api/send-pdf")
+# async def api_send_pdf(
+#     recipient_email: str = Form(...),
+#     filename: str = Form(...),
+#     original_filename: str = Form(default=""),
+#     session_id: str = Form(...),
+#     pdf: UploadFile = File(...),
+#     authorization: str | None = Header(default=None),
+# ):
+#     await _get_current_user(authorization)
+#     pdf_bytes = await pdf.read()
+#     if not pdf_bytes:
+#         raise HTTPException(status_code=400, detail="PDF file is empty.")
+#     try:
+#         await asyncio.to_thread(
+#             send_pdf_email,
+#             settings,
+#             recipient_email,
+#             pdf_bytes,
+#             filename,
+#             original_filename,
+#         )
+#         if settings.database_url:
+#             await asyncio.to_thread(
+#                 activity_repository.update_export_flag,
+#                 session_id,
+#                 "email_sent",
+#                 True,
+#             )
+#     except RuntimeError as exc:
+#         raise HTTPException(status_code=503, detail=str(exc)) from exc
+#     except Exception as exc:
+#         raise HTTPException(status_code=500, detail=f"Failed to send email: {exc}") from exc
+#     return {"message": f"Dossier sent to {recipient_email}."}
 
+@app.post("/api/send-pdf")
+async def api_send_pdf():
+    raise HTTPException(
+        status_code=404,
+        detail="Email feature has been disabled."
+    )
 
 @app.post("/api/uploads/init")
 async def init_chunked_upload(payload: UploadInitRequest):
