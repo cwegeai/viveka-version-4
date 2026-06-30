@@ -235,6 +235,7 @@ class GeminiArtifactService:
 
                 response.raise_for_status()
                 payload = response.json()
+                
 
                 candidates_list = payload.get("candidates") or []
                 if not candidates_list:
@@ -255,8 +256,14 @@ class GeminiArtifactService:
                     logger.info(f"[{label}] OK with {model}")
                     # Track token usage for admin metrics
                     if self.metrics is not None:
-                        self.metrics.gemini_input_tokens  += _estimate_tokens(prompt)
-                        self.metrics.gemini_output_tokens += _estimate_tokens(raw)
+                        usage = payload.get("usageMetadata", {})
+
+                        self.metrics.gemini_input_tokens += usage.get("promptTokenCount", 0)
+
+                        self.metrics.gemini_output_tokens += (
+                            usage.get("candidatesTokenCount", 0)
+                            + usage.get("thoughtsTokenCount", 0)
+                        )
                     return parsed
                 logger.warning(f"[{label}] {model} bad/empty JSON: {raw[:120]}")
                 return None
