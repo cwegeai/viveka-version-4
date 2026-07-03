@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { TranscriptionResult } from '../types';
 import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { uploadToMinio } from '../services/minio.service';
 import { getAccessToken, getStoredUser } from '../services/authStorage';
 import { TRANSCRIPTION_API_URL } from '../services/config';
@@ -384,7 +385,17 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
 
   const generateWord = async () => {
     try {
-      const { Document, Packer, Paragraph, HeadingLevel, TextRun } = await import('docx');
+      const {
+        Document,
+        Packer,
+        Paragraph,
+        HeadingLevel,
+        TextRun,
+        Table,
+        TableRow,
+        TableCell,
+        WidthType
+      } = await import("docx");
       const { saveAs } = await import('file-saver');
       const doc = new Document({
         sections: [{
@@ -397,13 +408,45 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
               new Paragraph({ text: "" }),
             ] : []),
             new Paragraph({ text: "FULL VERBATIM RECORD", heading: HeadingLevel.HEADING_1 }),
-            ...result.turns.flatMap((turn) => [
-              new Paragraph({ text: normalizeSpeakerLabel(turn.speaker), heading: HeadingLevel.HEADING_2 }),
-              new Paragraph({ children: [new TextRun({ text: "Original: ", bold: true }), new TextRun(turn.original || "")] }),
-              new Paragraph({ children: [new TextRun({ text: "Transliteration: ", bold: true }), new TextRun(turn.transliterated || "")] }),
-              new Paragraph({ children: [new TextRun({ text: "English Translation: ", bold: true }), new TextRun(turn.translated || "")] }),
-              new Paragraph({ text: "" }),
-            ]),
+            new Table({
+              width: {
+                size: 100,
+                type: WidthType.PERCENTAGE,
+              },
+
+              rows: [
+                new TableRow({
+                  children: [
+                    new TableCell({
+                      children: [new Paragraph("Original")],
+                    }),
+                    new TableCell({
+                      children: [new Paragraph("Transliteration")],
+                    }),
+                    new TableCell({
+                      children: [new Paragraph("English Translation")],
+                    }),
+                  ],
+                }),
+
+                ...result.turns.map(
+                  (turn) =>
+                    new TableRow({
+                      children: [
+                        new TableCell({
+                          children: [new Paragraph(turn.original || "")],
+                        }),
+                        new TableCell({
+                          children: [new Paragraph(turn.transliterated || "")],
+                        }),
+                        new TableCell({
+                          children: [new Paragraph(turn.translated || "")],
+                        }),
+                      ],
+                    })
+                ),
+              ],
+            }),
           ],
         }],
       });
@@ -678,85 +721,66 @@ export const TranscriptionCard: React.FC<Props> = ({ result, audioUrl, originalF
       y += 14;
       hRule(C_BORDER);
 
-      result.turns?.forEach((turn, idx) => {
-        const turnNum = idx + 1;
+      autoTable(pdf, {
+        startY: y,
 
-        // Estimate block height for page-break decision
-        const origH  = measureText(turn.original || '', 13, 5);
-        const transH = turn.transliterated ? measureText(turn.transliterated, 9, 5) : 0;
-        const tranE  = measureText(turn.translated || '', 9.5, 5);
-        const blockH = 12 + 5 + origH + (turn.transliterated ? 5 + transH : 0) + 5 + tranE + 12;
-        checkBreak(blockH);
+        head: [[
+          "Speaker",
+          "Original",
+          "Transliteration",
+          "English Translation"
+        ]],
 
-        // Turn number circle
-        const circR = 3.8;
-        const circX = MARGIN + circR;
-        const circY = y + circR + 1;
-        pdf.setFillColor(...C_VIOLET);
-        pdf.circle(circX, circY, circR, 'F');
-        pdf.setFont('Latin', 'bold');
-        pdf.setFontSize(7);
-        pdf.setTextColor(...C_WHITE);
-        pdf.text(`${turnNum}`, circX, circY + 2.2, { align: 'center' });
+        body: result.turns.map(turn => [
+          normalizeSpeakerLabel(turn.speaker),
+          turn.original || "",
+          turn.transliterated || "",
+          turn.translated || ""
+        ]),
 
-        // Speaker label
-        pdf.setFont('Latin', 'bold');
-        pdf.setFontSize(8);
-        pdf.setTextColor(...C_NAVY);
-        pdf.text(normalizeSpeakerLabel(turn.speaker).toUpperCase(), MARGIN + circR * 2 + 4, y + 6);
+        theme: "grid",
 
-        // Timestamp pill (right-aligned)
-        const tsLabel = turn.timestamp || formatSecondsForPdf(turn.start_time_seconds);
-        pdf.setFont('Latin', 'normal');
-        pdf.setFontSize(7);
-        pdf.setTextColor(...C_SLATE);
-        const tsW = pdf.getTextWidth(tsLabel) + 6;
-        pdf.setFillColor(...C_BG_LIGHT);
-        pdf.roundedRect(pageWidth - MARGIN - tsW, y + 1.5, tsW, 5, 1.5, 1.5, 'F');
-        pdf.setTextColor(...C_SLATE);
-        pdf.text(tsLabel, pageWidth - MARGIN - tsW + 3, y + 5.5);
-        y += 11;
+        styles: {
+          fontSize: 8,
+          cellPadding: 2,
+          overflow: "linebreak",
+          valign: "middle",
+          textColor: [0, 0, 0],
+          cellWidth: "wrap",
+        },
 
-        // Vertical left accent line for the whole turn block
-        const turnBlockTopY = y;
+        headStyles: {
+          fillColor: [15, 23, 42],
+          textColor: [255, 255, 255],
+          fontStyle: "bold",
+        },
 
-        // ORIGINAL SCRIPT
-        addFieldLabel('ORIGINAL SCRIPT', 5);
-        const origFont = detectFontFamily(turn.original);
-        addText(turn.original || '', 13, 'bold', C_NAVY, 5, origFont, 5);
+        columnStyles: {
+          0: { cellWidth: 18 },
+          1: { cellWidth: "auto" },
+          2: { cellWidth: "auto" },
+          3: { cellWidth: "auto" },
+        },
 
-        // TRANSLITERATION
-        if (turn.transliterated) {
-          addFieldLabel('TRANSLITERATION', 5);
-          addText(turn.transliterated, 9, 'normal', C_SLATE, 5, 'Latin', 4);
+        didParseCell: (data) => {
+          if (data.section === "body") {
+
+            if (data.column.index === 1) {
+              data.cell.styles.font = detectFontFamily(String(data.cell.raw));
+            }
+
+            if (data.column.index === 2) {
+              data.cell.styles.font = "Latin";
+            }
+
+            if (data.column.index === 3) {
+              data.cell.styles.font = "Latin";
+            }
+          }
         }
-
-        // ENGLISH TRANSLATION — slight indent box
-        addFieldLabel('ENGLISH TRANSLATION', 5);
-        const transLines = pdf.splitTextToSize(turn.translated || '', contentWidth - 10);
-        const transBlockH = transLines.length * lh(9.5) + 6;
-        checkBreak(transBlockH);
-        pdf.setFillColor(250, 251, 253);
-        pdf.setDrawColor(...C_BORDER);
-        pdf.setLineWidth(0.25);
-        pdf.roundedRect(MARGIN + 5, y, contentWidth - 5, transBlockH, 2, 2, 'FD');
-        // left violet accent on translation box
-        pdf.setFillColor(...C_VIOLET);
-        pdf.rect(MARGIN + 5, y, 2, transBlockH, 'F');
-        pdf.setFont('Latin', 'normal');
-        pdf.setFontSize(9.5);
-        pdf.setTextColor(...C_BODY);
-        let ty2 = y + 4;
-        transLines.forEach((line: string) => { pdf.text(line, MARGIN + 10, ty2); ty2 += lh(9.5); });
-        y += transBlockH + 5;
-
-        // Left accent bar for whole turn block
-        pdf.setFillColor(...C_VIOLET);
-        pdf.rect(MARGIN, turnBlockTopY - 3, 1.5, y - turnBlockTopY + 2, 'F');
-
-        // Bottom separator
-        hRule(C_BORDER, contentWidth, 0.25);
       });
+
+      y = (pdf as any).lastAutoTable.finalY + 10;
 
 
       addPageFooter();
