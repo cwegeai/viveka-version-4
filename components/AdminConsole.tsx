@@ -273,7 +273,7 @@ export const AdminConsole: React.FC = () => {
               <table className="w-full text-left text-sm">
                 <thead className="bg-slate-50 border-b border-slate-100">
                   <tr>
-                    {['User', 'Role', 'Affiliation', 'Files', 'Audio', 'Tokens In', 'Tokens Out', 'Cost', 'Last Active', 'Actions'].map(h => (
+                    {['User', 'Role', 'Affiliation', 'Files', 'Audio Duration', 'Tokens In', 'Tokens Out', 'Cost', 'Last Active', 'Actions'].map(h => (
                       <th key={h} className="px-5 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -328,7 +328,7 @@ export const AdminConsole: React.FC = () => {
               <table className="w-full text-left text-sm">
                 <thead className="bg-slate-50 border-b border-slate-100">
                   <tr>
-                    {['Date', 'User', 'File', 'Format', 'Size', 'Audio', 'Status', 'Duration', 'Language', 'Speakers', 'Turns', 'Translated', 'Translit', 'Email', 'PDF','Doc','CSV', 'Tokens In', 'Tokens Out', 'Cost'].map(h => (
+                    {['Date', 'User', 'File', 'Format', 'Audio Size', 'Audio Duration', 'Status', 'Processing Time', 'Language', 'Speakers', 'Turns', 'Transcript', 'Translated', 'transliteration', 'Email', 'PDF','Doc','CSV', 'Tokens In', 'Tokens Out', 'Cost'].map(h => (
                       <th key={h} className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -355,6 +355,7 @@ export const AdminConsole: React.FC = () => {
                       <td className="px-4 py-3 text-xs text-slate-600 font-medium">{row.detected_language || '—'}</td>
                       <td className="px-4 py-3 text-xs text-center font-bold text-slate-700">{row.num_speakers ?? '—'}</td>
                       <td className="px-4 py-3 text-xs text-center font-bold text-slate-700">{row.num_transcript_turns ?? '—'}</td>
+                      <td className="px-4 py-3"><Badge ok={(row.num_transcript_turns ?? 0) > 0} /></td>
                       <td className="px-4 py-3"><Badge ok={!!row.translation_generated} /></td>
                       <td className="px-4 py-3"><Badge ok={!!row.transliteration_generated} /></td>
                       <td className="px-4 py-3"><Badge ok={!!row.email_sent} /></td>
