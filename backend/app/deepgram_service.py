@@ -1,95 +1,71 @@
+# viveda_echo/gemini_transcription_service.py
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
+import logging
 import mimetypes
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Optional
 
 import httpx
 
 from .config import Settings
 from .models import ChunkTranscript, SpeakerSegment, TranscriptWord
 
+logger = logging.getLogger(__name__)
 
-_shared_http_client: httpx.AsyncClient | None = None
-
-
-def _get_shared_http_client(timeout: int) -> httpx.AsyncClient:
-    global _shared_http_client
-    if _shared_http_client is None or _shared_http_client.is_closed:
-        _shared_http_client = httpx.AsyncClient(
-            timeout=timeout,
-            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
-        )
-    return _shared_http_client
-
-
-def _coerce_language(value: Any) -> str | None:
-    if isinstance(value, str):
-        normalized = value.strip()
-        return normalized or None
-    return None
-
-
-def _dedupe_languages(values: Iterable[str | None]) -> list[str]:
-    deduped: list[str] = []
-    for value in values:
-        normalized = _coerce_language(value)
-        if normalized and normalized not in deduped:
-            deduped.append(normalized)
-    return deduped
-
-
-def _extract_language_metadata(source: Mapping[str, Any] | None) -> dict[str, Any]:
-    if not source:
-        return {}
-    return {
-        key: value
-        for key, value in source.items()
-        if "language" in key.lower() and value not in (None, "", [], {})
-    }
-
-
-def _primary_language(explicit_values: Iterable[str | None], fallback_languages: Iterable[str | None]) -> str:
-    explicit = _dedupe_languages(explicit_values)
-    if explicit:
-        return explicit[0]
-    fallback = _dedupe_languages(fallback_languages)
-    if fallback:
-        return fallback[0]
-    return "unknown"
-
-
-def _join_word_text(words: list[TranscriptWord]) -> str:
-    text = " ".join(
-        (word.punctuated_word or word.word).strip()
-        for word in words
-        if (word.punctuated_word or word.word).strip()
-    )
-    return text.replace("  ", " ").replace(" ,", ",").replace(" .", ".").replace(" !", "!").replace(" ?", "?").strip()
-
-
-class DeepgramTranscriptionService:
+class GeminiTranscriptionService:
     def __init__(self, settings: Settings):
         self.settings = settings
+        self._client: Optional[httpx.AsyncClient] = None
+
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=self.settings.chunk_request_timeout_seconds,
+                limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+            )
+        return self._client
 
     async def transcribe_chunk(self, chunk_id: int, file_path: Path, start_time: float, end_time: float) -> ChunkTranscript:
         last_error: Exception | None = None
+        
         for attempt in range(self.settings.transcription_retry_count + 1):
             try:
-                payload = await self._transcribe_async(file_path)
-                return self._parse_payload(chunk_id, start_time, end_time, payload)
+                # Read audio file and convert to base64
+                audio_bytes = await asyncio.to_thread(file_path.read_bytes)
+                audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+                
+                # STRICT FIX: Normalize MIME types explicitly to standard Gemini accepted strings
+                ext = file_path.suffix.lower()
+                if ext in [".mp3", ".mpeg"]:
+                    mime_type = "audio/mp3"
+                elif ext == ".wav":
+                    mime_type = "audio/wav"
+                elif ext in [".ogg", ".opus"]:
+                    mime_type = "audio/ogg"
+                elif ext == ".aac":
+                    mime_type = "audio/aac"
+                else:
+                    mime_type = mimetypes.guess_type(file_path.name)[0] or "audio/mp3"
+
+                payload = await self._transcribe_via_gemini(audio_b64, mime_type)
+                return self._parse_gemini_payload(chunk_id, start_time, end_time, payload)
             except Exception as exc:
+                logger.warning(f"Gemini transcription attempt {attempt + 1} failed for chunk {chunk_id}: {exc}")
                 last_error = exc
                 if attempt >= self.settings.transcription_retry_count:
                     break
                 await asyncio.sleep(2 ** attempt)
 
+        # Fallback graceful failure object if all retries fail
         return ChunkTranscript(
             chunk_id=chunk_id,
             start_time=start_time,
             end_time=end_time,
-            transcript=f"[Chunk {chunk_id} could not be transcribed after retries.]",
+            transcript=f"[Chunk {chunk_id} could not be transcribed by Gemini after retries.]",
             language="unknown",
             confidence=0.0,
             speakers=[
@@ -104,160 +80,131 @@ class DeepgramTranscriptionService:
             error=str(last_error) if last_error else "Unknown transcription error",
         )
 
-    async def _transcribe_async(self, file_path: Path) -> Any:
-        if not self.settings.deepgram_api_key:
-            raise RuntimeError("DEEPGRAM_API_KEY is not configured.")
+    async def _transcribe_via_gemini(self, audio_b64: str, mime_type: str) -> dict[str, Any]:
+        model = self.settings.gemini_model
+        url = (
+            f"{self.settings.gemini_base_url}/models/{model}:generateContent"
+            f"?key={self.settings.gemini_api_key}"
+        )
 
-        url = f"{self.settings.deepgram_base_url}{self.settings.deepgram_listen_path}"
-        params = {
-            "model": self.settings.deepgram_model,
-            "language": self.settings.deepgram_language,
-            "smart_format": "true",
-            "punctuate": "true",
-            "diarize": "true",
-            "filler_words": "false",
-        }
-        headers = {
-            "Authorization": f"Token {self.settings.deepgram_api_key}",
-            "Content-Type": mimetypes.guess_type(file_path.name)[0] or "application/octet-stream",
+        prompt = (
+            "You are an expert audio transcription and diarization engine. "
+            "Analyze the provided audio file and return a verbatim transcript. "
+            "Diarize distinct speakers carefully (e.g., 'Speaker 1', 'Speaker 2'). "
+            "The timestamps for each segment must be relative to the start of this specific audio file (0.0 seconds).\n\n"
+            "You MUST respond ONLY with a valid JSON object matching this schema structure:\n"
+            "{\n"
+            "  \"transcript\": \"Full text combining all turns...\",\n"
+            "  \"language\": \"en\",\n"
+            "  \"speakers\": [\n"
+            "    {\n"
+            "      \"speaker\": \"Speaker 1\",\n"
+            "      \"text\": \"The text spoken in this segment.\",\n"
+            "      \"start_time\": 0.0,\n"
+            "      \"end_time\": 4.5\n"
+            "    }\n"
+            "  ]\n"
+            "}"
+        )
+
+        headers = {"Content-Type": "application/json"}
+        
+        # CRITICAL FIXED ORDER: The text instructions part MUST precede the inlineData block
+        request_body = {
+            "contents": [
+                {
+                    "parts": [
+                        {
+                            "text": prompt
+                        },
+                        {
+                            "inlineData": {
+                                "mimeType": mime_type,
+                                "data": audio_b64
+                            }
+                        }
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.1,
+                "responseMimeType": "application/json"  # Forces native structured JSON output
+            }
         }
 
-        file_data = await asyncio.to_thread(file_path.read_bytes)
-        client = _get_shared_http_client(self.settings.chunk_request_timeout_seconds)
-        response = await client.post(url, params=params, headers=headers, content=file_data)
+        client = self._get_client()
+        response = await client.post(url, headers=headers, json=request_body)
         response.raise_for_status()
-        return response.json()
+        
+        res_json = response.json()
+        raw_text = res_json["candidates"][0]["content"]["parts"][0]["text"]
+        
+        # Clean off any markdown wrapping blocks if Gemini adds them
+        clean_text = raw_text.strip()
+        if clean_text.startswith("```"):
+            clean_text = clean_text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
 
-    def _parse_payload(self, chunk_id: int, start_time: float, end_time: float, payload: Any) -> ChunkTranscript:
-        if hasattr(payload, "model_dump"):
-            data = payload.model_dump()
-        elif hasattr(payload, "dict"):
-            data = payload.dict()
-        else:
-            data = payload
+        try:
+            return json.loads(clean_text)
+        except Exception:
+            return {"transcript": clean_text, "language": "en", "speakers": []}
 
-        channel = ((data.get("results") or {}).get("channels") or [{}])[0]
-        alternative = (channel.get("alternatives") or [{}])[0]
-        transcript = str(alternative.get("transcript") or "").strip()
-        confidence = alternative.get("confidence")
-        raw_words = alternative.get("words") or []
+    def _parse_gemini_payload(self, chunk_id: int, chunk_start: float, chunk_end: float, data: dict[str, Any]) -> ChunkTranscript:
+        transcript = data.get("transcript", "").strip()
+        language = data.get("language", "unknown")
+        raw_speakers = data.get("speakers", [])
 
-        channel_language_metadata = _extract_language_metadata(channel)
-        alternative_language_metadata = _extract_language_metadata(alternative)
-
+        speakers: list[SpeakerSegment] = []
         words: list[TranscriptWord] = []
-        for raw_word in raw_words:
-            token = str(raw_word.get("punctuated_word") or raw_word.get("word") or "").strip()
-            if not token:
-                continue
 
-            raw_start = float(raw_word.get("start", 0.0) or 0.0)
-            raw_end = float(raw_word.get("end", raw_start) or raw_start)
-            speaker_value = raw_word.get("speaker")
-            words.append(
-                TranscriptWord(
-                    word=str(raw_word.get("word") or "").strip(),
-                    punctuated_word=str(raw_word.get("punctuated_word") or "").strip() or None,
-                    start_time=start_time + raw_start,
-                    end_time=min(end_time, start_time + raw_end),
-                    confidence=float(raw_word["confidence"]) if raw_word.get("confidence") is not None else None,
-                    speaker=self._speaker_label(speaker_value) if speaker_value is not None else None,
-                    language=_coerce_language(raw_word.get("language")),
-                    language_metadata=_extract_language_metadata(raw_word),
+        for item in raw_speakers:
+            rel_start = float(item.get("start_time", 0.0))
+            rel_end = float(item.get("end_time", rel_start))
+            
+            abs_start = chunk_start + rel_start
+            abs_end = min(chunk_end, chunk_start + rel_end)
+            speaker_label = str(item.get("speaker", "Speaker 1")).strip()
+            segment_text = str(item.get("text", "")).strip()
+
+            speakers.append(
+                SpeakerSegment(
+                    speaker=speaker_label,
+                    text=segment_text,
+                    start_time=abs_start,
+                    end_time=abs_end,
+                    confidence=1.0,
+                    language=language,
+                    languages=[language],
+                    words=[],
+                    language_metadata={}
                 )
             )
 
-        languages = _dedupe_languages(
-            [
-                channel.get("detected_language"),
-                channel.get("language"),
-                alternative.get("detected_language"),
-                alternative.get("language"),
-                *list(channel.get("languages") or []),
-                *list(alternative.get("languages") or []),
-                *(word.language for word in words),
-            ]
-        )
-        detected_language = _coerce_language(channel.get("detected_language") or alternative.get("detected_language"))
-        language = _primary_language(
-            [detected_language, channel.get("language"), alternative.get("language")],
-            languages,
-        )
-
-        speakers: list[SpeakerSegment] = []
-        if words:
-            current_words = [words[0]]
-            current_speaker = words[0].speaker or "Speaker 1"
-
-            for word in words[1:]:
-                speaker = word.speaker or current_speaker
-
-                if speaker != current_speaker:
-                    speakers.append(self._build_segment(current_speaker, current_words))
-                    current_speaker = speaker
-                    current_words = [word]
-                else:
-                    current_words.append(word)
-
-            speakers.append(self._build_segment(current_speaker, current_words))
-
-        if not transcript:
-            transcript = " ".join(segment.text for segment in speakers).strip()
-
         if not speakers and transcript:
-            speakers = [
+            speakers.append(
                 SpeakerSegment(
                     speaker="Speaker 1",
                     text=transcript,
-                    start_time=start_time,
-                    end_time=end_time,
-                    confidence=confidence,
+                    start_time=chunk_start,
+                    end_time=chunk_end,
+                    confidence=1.0,
                     language=language,
-                    languages=languages,
-                    words=words,
-                    language_metadata=alternative_language_metadata or channel_language_metadata,
+                    languages=[language],
+                    words=[],
+                    language_metadata={}
                 )
-            ]
+            )
 
         return ChunkTranscript(
             chunk_id=chunk_id,
-            start_time=start_time,
-            end_time=end_time,
+            start_time=chunk_start,
+            end_time=chunk_end,
             transcript=transcript,
             language=language,
-            detected_language=detected_language,
-            languages=languages,
-            confidence=float(confidence) if confidence is not None else None,
+            detected_language=language,
+            languages=[language],
+            confidence=1.0,
             words=words,
-            language_metadata={
-                "channel": channel_language_metadata,
-                "alternative": alternative_language_metadata,
-            },
+            language_metadata={},
             speakers=speakers,
         )
-
-    def _build_segment(self, speaker: str, words: list[TranscriptWord]) -> SpeakerSegment:
-        text = _join_word_text(words)
-        segment_languages = _dedupe_languages(word.language for word in words)
-        confidence_values = [word.confidence for word in words if word.confidence is not None]
-        return SpeakerSegment(
-            speaker=speaker,
-            text=text,
-            start_time=words[0].start_time,
-            end_time=words[-1].end_time,
-            confidence=(sum(confidence_values) / len(confidence_values)) if confidence_values else None,
-            language=_primary_language(segment_languages, segment_languages),
-            languages=segment_languages,
-            words=words,
-            language_metadata={
-                "words": [word.language_metadata for word in words if word.language_metadata],
-            },
-        )
-
-    @staticmethod
-    def _speaker_label(value: Any) -> str:
-        if isinstance(value, int):
-            return f"Speaker {value + 1}"
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-        return "Speaker 1"
