@@ -277,87 +277,122 @@ CRITICAL RULES:
   throw new Error("Artifact generation failed");
 };
 
-const transcribeWithDeepgram = async (
-  audioFile: File,
-  mimeType: string
-): Promise<{ turns: any[] }> => {
-  const deepgramKey = (process.env.DEEPGRAM_API_KEY || "").trim();
-  if (!deepgramKey) return { turns: [] };
+// const transcribeWithDeepgram = async (
+//   audioFile: File,
+//   mimeType: string
+// ): Promise<{ turns: any[] }> => {
+//   const deepgramKey = (process.env.DEEPGRAM_API_KEY || "").trim();
+//   if (!deepgramKey) return { turns: [] };
 
-  const query = new URLSearchParams({
-    model: "nova-2",
-    smart_format: "true",
-    punctuate: "true",
-    diarize: "true",
-    filler_words: "false"
-  });
+//   const query = new URLSearchParams({
+//     model: "nova-2",
+//     smart_format: "true",
+//     punctuate: "true",
+//     diarize: "true",
+//     filler_words: "false"
+//   });
 
-  const response = await fetch(`https://api.deepgram.com/v1/listen?${query.toString()}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Token ${deepgramKey}`,
-      "Content-Type": mimeType || "audio/mpeg"
-    },
-    body: audioFile
-  });
+//   const response = await fetch(`https://api.deepgram.com/v1/listen?${query.toString()}`, {
+//     method: "POST",
+//     headers: {
+//       Authorization: `Token ${deepgramKey}`,
+//       "Content-Type": mimeType || "audio/mpeg"
+//     },
+//     body: audioFile
+//   });
 
-  if (!response.ok) {
-    const errText = await response.text().catch(() => "");
-    throw new Error(`Deepgram STT failed: ${response.status} ${errText}`);
-  }
+//   if (!response.ok) {
+//     const errText = await response.text().catch(() => "");
+//     throw new Error(`Deepgram STT failed: ${response.status} ${errText}`);
+//   }
 
-  const data: any = await response.json();
-  const words: any[] = data?.results?.channels?.[0]?.alternatives?.[0]?.words || [];
-  if (!words.length) return { turns: [] };
+//   const data: any = await response.json();
+//   const words: any[] = data?.results?.channels?.[0]?.alternatives?.[0]?.words || [];
+//   if (!words.length) return { turns: [] };
 
-  const turns: any[] = [];
-  let currentSpeaker = words[0].speaker ?? 0;
-  let currentStart = words[0].start ?? 0;
-  let currentEnd = words[0].end ?? 0;
-  let buffer: string[] = [words[0].punctuated_word || words[0].word || ""];
+//   const turns: any[] = [];
+//   let currentSpeaker = words[0].speaker ?? 0;
+//   let currentStart = words[0].start ?? 0;
+//   let currentEnd = words[0].end ?? 0;
+//   let buffer: string[] = [words[0].punctuated_word || words[0].word || ""];
 
-  for (let index = 1; index < words.length; index++) {
-    const word = words[index];
-    const speaker = word.speaker ?? currentSpeaker;
-    const token = word.punctuated_word || word.word || "";
+//   for (let index = 1; index < words.length; index++) {
+//     const word = words[index];
+//     const speaker = word.speaker ?? currentSpeaker;
+//     const token = word.punctuated_word || word.word || "";
 
-    if (speaker !== currentSpeaker) {
-      const original = buffer.join(" ").replace(/\s+/g, " ").trim();
-      if (original) {
-        turns.push({
-          speaker: `Speaker ${Number(currentSpeaker) + 1}`,
-          timestamp: formatTimestamp(currentStart),
-          startSeconds: currentStart,
-          original,
-          transliterated: original,
-          translated: original,
-          mu_id: `MU-${(turns.length + 1).toString().padStart(3, "0")}`
-        });
-      }
+//     if (speaker !== currentSpeaker) {
+//       const original = buffer.join(" ").replace(/\s+/g, " ").trim();
+//       if (original) {
+//         turns.push({
+//           speaker: `Speaker ${Number(currentSpeaker) + 1}`,
+//           timestamp: formatTimestamp(currentStart),
+//           startSeconds: currentStart,
+//           original,
+//           transliterated: original,
+//           translated: original,
+//           mu_id: `MU-${(turns.length + 1).toString().padStart(3, "0")}`
+//         });
+//       }
 
-      currentSpeaker = speaker;
-      currentStart = word.start ?? currentEnd;
-      buffer = [token];
-    } else {
-      buffer.push(token);
-    }
-    currentEnd = word.end ?? currentEnd;
-  }
+//       currentSpeaker = speaker;
+//       currentStart = word.start ?? currentEnd;
+//       buffer = [token];
+//     } else {
+//       buffer.push(token);
+//     }
+//     currentEnd = word.end ?? currentEnd;
+//   }
 
-  const lastOriginal = buffer.join(" ").replace(/\s+/g, " ").trim();
-  if (lastOriginal) {
-    turns.push({
-      speaker: `Speaker ${Number(currentSpeaker) + 1}`,
-      timestamp: formatTimestamp(currentStart),
-      startSeconds: currentStart,
-      original: lastOriginal,
-      transliterated: lastOriginal,
-      translated: lastOriginal,
-      mu_id: `MU-${(turns.length + 1).toString().padStart(3, "0")}`
+//   const lastOriginal = buffer.join(" ").replace(/\s+/g, " ").trim();
+//   if (lastOriginal) {
+//     turns.push({
+//       speaker: `Speaker ${Number(currentSpeaker) + 1}`,
+//       timestamp: formatTimestamp(currentStart),
+//       startSeconds: currentStart,
+//       original: lastOriginal,
+//       transliterated: lastOriginal,
+//       translated: lastOriginal,
+//       mu_id: `MU-${(turns.length + 1).toString().padStart(3, "0")}`
+//     });
+//   }
+
+//   return { turns };
+// };
+
+export const transcribeAudioFile = async (
+  audioFile: File, 
+  mimeType: string,
+  onStatusChange?: (message: string, progress: number) => void
+) => {
+  try {
+    if (onStatusChange) onStatusChange("Initializing Gemini pipeline...", 10);
+    
+    const formData = new FormData();
+    formData.append("file", audioFile);
+    formData.append("file_size_bytes", audioFile.size.toString());
+
+    if (onStatusChange) onStatusChange("Processing audio through Gemini...", 35);
+
+    // This hits your FastAPI backend server directly where Gemini runs
+    const response = await fetch("/api/transcribe", {
+      method: "POST",
+      body: formData,
     });
-  }
 
-  return { turns };
+    if (!response.ok) {
+      throw new Error(`Server execution failed: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+
+    if (onStatusChange) onStatusChange("Transcription complete via Gemini!", 100);
+    return { turns: result.turns || [] };
+
+  } catch (error: any) {
+    console.error("Transcription pipeline error:", error.message);
+    throw new Error(`Gemini Pipeline failed: ${error.message}`);
+  }
 };
 
 function extractLargestCompleteJsonObject(str: string): any {
@@ -437,38 +472,38 @@ export const transcribeAudio = async (
   try {
     onStatusChange("Phase 1: Zero-Loss Verbatim Synthesis...", 85);
 
-    try {
-      const durationSeconds = await getAudioDurationSeconds(audioFile);
-      if (durationSeconds >= 20 * 60) {
-        onStatusChange("Long audio detected. Segmenting for Deepgram STT...", 35);
-        const segments = await splitAudioIntoSegments(audioFile);
-        const mergedTurns: any[] = [];
+    // try {
+    //   const durationSeconds = await getAudioDurationSeconds(audioFile);
+    //   if (durationSeconds >= 20 * 60) {
+    //     onStatusChange("Long audio detected. Segmenting for Deepgram STT...", 35);
+    //     const segments = await splitAudioIntoSegments(audioFile);
+    //     const mergedTurns: any[] = [];
 
-        for (let index = 0; index < segments.length; index++) {
-          const segment = segments[index];
-          const segmentProgress = 35 + Math.floor(((index + 1) / segments.length) * 50);
-          onStatusChange(`Transcribing segment ${index + 1}/${segments.length}...`, segmentProgress);
+    //     for (let index = 0; index < segments.length; index++) {
+    //       const segment = segments[index];
+    //       const segmentProgress = 35 + Math.floor(((index + 1) / segments.length) * 50);
+    //       onStatusChange(`Transcribing segment ${index + 1}/${segments.length}...`, segmentProgress);
 
-          const segmentResult = await transcribeWithDeepgram(segment.file, "audio/wav");
-          const normalized = normalizeTurns(segmentResult.turns, segment.startSeconds, mergedTurns.length);
-          mergedTurns.push(...normalized);
-        }
+    //       const segmentResult = await transcribeWithDeepgram(segment.file, "audio/wav");
+    //       const normalized = normalizeTurns(segmentResult.turns, segment.startSeconds, mergedTurns.length);
+    //       mergedTurns.push(...normalized);
+    //     }
 
-        if (mergedTurns.length > 0) {
-          verbatimResult = { turns: mergedTurns };
-          onStatusChange("Phase 1 complete via segmented Deepgram STT...", 88);
-        }
-      } else {
-        const deepgramResult = await transcribeWithDeepgram(audioFile, mimeType);
-        if (deepgramResult.turns.length > 0) {
-          verbatimResult = { turns: normalizeTurns(deepgramResult.turns) };
-          onStatusChange("Phase 1 complete via Deepgram STT...", 88);
-        }
-      }
-    } catch (deepgramError: any) {
-      console.warn(`Deepgram STT unavailable, falling back to Gemini: ${deepgramError.message}`);
-      errors.push(`deepgram: ${deepgramError.message}`);
-    }
+    //     if (mergedTurns.length > 0) {
+    //       verbatimResult = { turns: mergedTurns };
+    //       onStatusChange("Phase 1 complete via segmented Deepgram STT...", 88);
+    //     }
+    //   } else {
+    //     const deepgramResult = await transcribeWithDeepgram(audioFile, mimeType);
+    //     if (deepgramResult.turns.length > 0) {
+    //       verbatimResult = { turns: normalizeTurns(deepgramResult.turns) };
+    //       onStatusChange("Phase 1 complete via Deepgram STT...", 88);
+    //     }
+    //   }
+    // } catch (deepgramError: any) {
+    //   console.warn(`Deepgram STT unavailable, falling back to Gemini: ${deepgramError.message}`);
+    //   errors.push(`deepgram: ${deepgramError.message}`);
+    // }
 
     if (!verbatimResult && ai) {
       const fileManager = ai.files;
