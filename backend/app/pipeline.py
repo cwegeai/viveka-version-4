@@ -11,7 +11,7 @@ from fastapi import UploadFile
 
 from .audio import ChunkManifest, build_chunk_plan, create_chunk, prepare_chunks, probe_duration_seconds, stream_upload_to_disk
 from .config import Settings
-from .deepgram_service import DeepgramTranscriptionService
+from .gemini_transcription_service import GeminiTranscriptionService
 from .events import progress_event, sse_event
 from .gemini_service import GeminiArtifactService
 from .merge_engine import merge_chunk_results
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 class PipelineRunner:
     def __init__(self, settings: Settings):
         self.settings = settings
-        self.transcriber = DeepgramTranscriptionService(settings)
+        self.transcriber = GeminiTranscriptionService(settings)
         self.gemini = GeminiArtifactService(settings)
         # Set by caller (main.py) before run_saved_source is called
         self.metrics: "TranscriptionMetrics | None" = None
@@ -96,7 +96,7 @@ class PipelineRunner:
             ]
             yield progress_event(
                 PipelineStage.splitting,
-                f"Using direct Deepgram path for {duration_seconds / 60:.1f} minutes of audio.",
+                f"Using direct Gemini path for {duration_seconds / 60:.1f} minutes of audio.",
                 progress=35,
                 total_chunks=1,
             )
