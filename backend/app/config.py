@@ -49,11 +49,7 @@ class Settings:
     upload_retry_count: int
     transcription_retry_count: int
     chunk_request_timeout_seconds: int
-    deepgram_api_key: str
-    deepgram_model: str
-    deepgram_language: str
-    deepgram_base_url: str
-    deepgram_listen_path: str
+    
     gemini_api_key: str
     gemini_model: str
     gemini_base_url: str
@@ -128,11 +124,7 @@ def get_settings() -> Settings:
         upload_retry_count=4,
         transcription_retry_count=3,
         chunk_request_timeout_seconds=int(os.getenv("STT_REQUEST_TIMEOUT_SECONDS", "600")),
-        deepgram_api_key=os.getenv("DEEPGRAM_API_KEY", ""),
-        deepgram_model=os.getenv("DEEPGRAM_MODEL", "nova-3"),
-        deepgram_language=os.getenv("DEEPGRAM_LANGUAGE", "multi").strip() or "multi",
-        deepgram_base_url=os.getenv("DEEPGRAM_BASE_URL", "https://api.deepgram.com").rstrip("/"),
-        deepgram_listen_path=os.getenv("DEEPGRAM_LISTEN_PATH", "/v1/listen"),
+       
         gemini_api_key=os.getenv("GEMINI_API_KEY", ""),
         gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
         gemini_base_url=os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta").rstrip("/"),
