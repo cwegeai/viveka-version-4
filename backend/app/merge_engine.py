@@ -1,11 +1,31 @@
 from __future__ import annotations
 
+import difflib
 import re
 
 from .models import ChunkTranscript, MergedTranscript, SpeakerSegment, TranscriptWord
 
 
 TOKEN_PATTERN = re.compile(r"\w+|[^\w\s]", re.UNICODE)
+
+# FIX: Only trim an overlap if it's at least this many tokens long.
+# Short common words (e.g. "haan", "achha", "nahin") repeat naturally
+# throughout a real conversation and are NOT reliable evidence of a
+# chunk-boundary duplicate. A short coincidental match must never
+# delete real, distinct content.
+MIN_SAFE_OVERLAP_TOKENS = 4
+
+# FIX: threshold for the FUZZY chunk-boundary duplicate check below.
+# This is intentionally high (0.65) and is only ever evaluated inside
+# the existing temporal-overlap gate (candidate.start_time <
+# previous.end_time) - i.e. only for segments that genuinely sit at a
+# real chunk boundary produced by our own overlap_seconds setting.
+# It must NEVER be applied across the whole transcript, because two
+# different speakers can legitimately say very similar things far
+# apart in time (e.g. the same standardized survey question asked to
+# two different household members) - that is real content, not a
+# duplicate, and must never be deleted.
+FUZZY_DUPLICATE_THRESHOLD = 0.65
 
 
 def format_timestamp(seconds: float) -> str:
@@ -95,6 +115,40 @@ def _trim_overlap(next_text: str, overlap_size: int) -> str:
     return rebuilt.strip()
 
 
+# FIX: exact-token overlap detection (_find_overlap / _find_word_overlap
+# above) only catches duplicates where OpenAI transcribed the SAME
+# overlapping audio identically both times. In practice the model is
+# not perfectly deterministic - re-transcribing the same few seconds of
+# audio across two chunks can produce slightly different wording
+# (alternate spelling, a misheard word, punctuation differences), so an
+# exact match finds zero overlap and the duplicate slips through.
+#
+# This fuzzy check is a fallback for exactly that case. It is ONLY ever
+# called from inside the existing temporal-overlap gate further down
+# (candidate.start_time < previous.end_time), so it only ever compares
+# segments that are genuinely adjacent in time at a real chunk
+# boundary - never content minutes apart, which could coincidentally
+# be worded similarly (e.g. the same standardized question asked to a
+# different respondent) but is real, distinct content that must never
+# be deleted.
+def _is_fuzzy_duplicate(prev_text: str, next_text: str, max_tokens: int = 80, threshold: float = FUZZY_DUPLICATE_THRESHOLD) -> bool:
+    prev_tokens = [_normalize_token(token) for token in _tokenize(prev_text) if _normalize_token(token)]
+    next_tokens = [_normalize_token(token) for token in _tokenize(next_text) if _normalize_token(token)]
+
+    if len(prev_tokens) < MIN_SAFE_OVERLAP_TOKENS or len(next_tokens) < MIN_SAFE_OVERLAP_TOKENS:
+        return False
+
+    # Compare against a tail window of the previous segment sized relative
+    # to the candidate, not the whole (possibly very long, already-merged)
+    # previous segment - otherwise a short real duplicate would get diluted
+    # into a low similarity ratio against a long accumulated text.
+    window = min(max_tokens, max(len(next_tokens) * 2, MIN_SAFE_OVERLAP_TOKENS))
+    prev_window_tokens = prev_tokens[-window:]
+
+    similarity = difflib.SequenceMatcher(None, " ".join(prev_window_tokens), " ".join(next_tokens)).ratio()
+    return similarity >= threshold
+
+
 def merge_chunk_results(chunk_results: list[ChunkTranscript]) -> MergedTranscript:
     ordered_results = sorted(chunk_results, key=lambda chunk: chunk.start_time)
     merged_segments: list[SpeakerSegment] = []
@@ -136,19 +190,46 @@ def merge_chunk_results(chunk_results: list[ChunkTranscript]) -> MergedTranscrip
 
             previous = merged_segments[-1]
 
+            # FIX (was): `if candidate.end_time <= previous.end_time: continue`
+            # That silently threw away the ENTIRE segment's text whenever
+            # Gemini's estimated timestamps looked out of order - which
+            # happens often in fast, overlapping, multi-speaker dialogue.
+            # Gemini's timestamps are an estimate, not a reliable clock -
+            # they must never be allowed to delete real transcribed text.
+            # Instead: nudge the timestamp forward so ordering stays sane,
+            # but KEEP the text.
             if candidate.end_time <= previous.end_time:
-                continue
+                original_span = max(0.1, candidate.end_time - candidate.start_time)
+                candidate.start_time = previous.end_time
+                candidate.end_time = previous.end_time + original_span
 
             if candidate.start_time < previous.end_time:
                 overlap_size = 0
                 if previous.words and candidate.words:
-                    overlap_size = _find_word_overlap(previous.words, candidate.words)
-                    if overlap_size > 0:
+                    word_overlap_size = _find_word_overlap(previous.words, candidate.words)
+                    # FIX: only trust a word-level overlap if it clears the
+                    # minimum safe length. A 1-2 word match is very likely
+                    # a coincidence (repeated common words), not a real
+                    # chunk-boundary duplicate.
+                    if word_overlap_size >= MIN_SAFE_OVERLAP_TOKENS:
+                        overlap_size = word_overlap_size
                         candidate.words = candidate.words[overlap_size:]
                         candidate.text = _segment_text_from_words(candidate.words)
                 if overlap_size == 0:
-                    overlap_size = _find_overlap(previous.text, candidate.text)
-                    candidate.text = _trim_overlap(candidate.text, overlap_size)
+                    text_overlap_size = _find_overlap(previous.text, candidate.text)
+                    # FIX: same minimum-length safety check on the
+                    # text-level overlap path.
+                    if text_overlap_size >= MIN_SAFE_OVERLAP_TOKENS:
+                        candidate.text = _trim_overlap(candidate.text, text_overlap_size)
+                    elif _is_fuzzy_duplicate(previous.text, candidate.text):
+                        # FIX: exact matching found nothing, but the two
+                        # segments are highly similar reworded text at a
+                        # genuine chunk boundary (start_time overlap) -
+                        # this is the same overlapping audio transcribed
+                        # twice with slightly different wording. Drop the
+                        # duplicate candidate rather than appending it
+                        # again.
+                        candidate.text = ""
                 candidate.start_time = max(candidate.start_time, previous.end_time)
 
             if not candidate.text:

@@ -328,6 +328,12 @@ class GeminiArtifactService:
             )
             try:
                 parsed = await self._request_json(prompt, timeout=45.0, label="batch-translate")
+                if parsed is None:
+                    continue
+
+                if not isinstance(parsed, dict):
+                    logger.warning(f"Unexpected Gemini response type: {type(parsed)}")
+                    continue
                 if parsed:
                     for item in _ensure_list(parsed.get("turns")):
                         if isinstance(item, dict) and item.get("id"):

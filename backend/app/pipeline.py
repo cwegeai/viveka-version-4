@@ -11,11 +11,11 @@ from fastapi import UploadFile
 
 from .audio import ChunkManifest, build_chunk_plan, create_chunk, prepare_chunks, probe_duration_seconds, stream_upload_to_disk
 from .config import Settings
-from .gemini_transcription_service import GeminiTranscriptionService
+from .hybrid_transcription_service import HybridTranscriptionService
 from .events import progress_event, sse_event
 from .gemini_service import GeminiArtifactService
 from .merge_engine import merge_chunk_results
-from .models import ChunkTranscript, PipelineStage
+from .models import ChunkTranscript, PipelineStage, SpeakerSegment
 
 if TYPE_CHECKING:
     from .activity_repository import TranscriptionMetrics
@@ -26,7 +26,11 @@ logger = logging.getLogger(__name__)
 class PipelineRunner:
     def __init__(self, settings: Settings):
         self.settings = settings
-        self.transcriber = GeminiTranscriptionService(settings)
+        # Gemini is tried first for every chunk (free), OpenAI is only
+        # called as a per-chunk fallback if Gemini's own retries fail.
+        # Summary/translation below still runs on Gemini (self.gemini),
+        # so this adds zero cost in normal operation.
+        self.transcriber = HybridTranscriptionService(settings)
         self.gemini = GeminiArtifactService(settings)
         # Set by caller (main.py) before run_saved_source is called
         self.metrics: "TranscriptionMetrics | None" = None
@@ -183,15 +187,47 @@ class PipelineRunner:
 
             async def create_and_process_chunk(chunk_id: int, start_time: float, end_time: float) -> None:
                 async with creation_semaphore:
-                    manifest = await asyncio.to_thread(
-                        create_chunk,
-                        source_path,
-                        chunks_dir,
-                        self.settings,
-                        chunk_id,
-                        start_time,
-                        end_time,
-                    )
+                    try:
+                        manifest = await asyncio.to_thread(
+                            create_chunk,
+                            source_path,
+                            chunks_dir,
+                            self.settings,
+                            chunk_id,
+                            start_time,
+                            end_time,
+                        )
+                    except Exception as exc:
+                        # FIX: this try/except was missing in the version
+                        # you had. Without it, create_chunk raising after
+                        # its retries (which it does - RuntimeError) blew
+                        # up inside an asyncio.create_task that nothing
+                        # ever awaits the result of, so the exception was
+                        # silently swallowed and that chunk's slot in
+                        # processed_chunks stayed None forever - it just
+                        # vanished from the final transcript with no
+                        # visible error anywhere. Now it's recorded as a
+                        # visible placeholder instead.
+                        logger.error(f"Chunk {chunk_id} creation failed: {exc}", exc_info=True)
+                        processed_chunks[chunk_id - 1] = ChunkTranscript(
+                            chunk_id=chunk_id,
+                            start_time=start_time,
+                            end_time=end_time,
+                            transcript=f"[Chunk {chunk_id} could not be split/created for transcription.]",
+                            language="unknown",
+                            confidence=0.0,
+                            speakers=[
+                                SpeakerSegment(
+                                    speaker="System",
+                                    text=f"Chunk {chunk_id} creation failed.",
+                                    start_time=start_time,
+                                    end_time=end_time,
+                                    confidence=0.0,
+                                )
+                            ],
+                            error=str(exc),
+                        )
+                        return
                 await process_chunk(manifest)
 
             tasks = [
@@ -224,6 +260,8 @@ class PipelineRunner:
             yield await yield_queue.get()
 
         final_chunks = [chunk for chunk in processed_chunks if chunk is not None]
+        if len(final_chunks) < total_chunks:
+            logger.error(f"Only {len(final_chunks)} of {total_chunks} chunks made it into the final transcript.")
 
         yield progress_event(PipelineStage.merging, "Merging chunk transcripts...", progress=75)
         merged = merge_chunk_results(final_chunks)

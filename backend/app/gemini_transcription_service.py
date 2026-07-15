@@ -6,6 +6,7 @@ import base64
 import json
 import logging
 import mimetypes
+import random
 from pathlib import Path
 from typing import Any, Optional
 
@@ -16,10 +17,31 @@ from .models import ChunkTranscript, SpeakerSegment, TranscriptWord
 
 logger = logging.getLogger(__name__)
 
+# FIX: process-wide cap on concurrent Gemini generateContent calls, keyed
+# by (base_url, model) so different configs don't share a limiter.
+# Chunks used to all fire at Gemini simultaneously (only gated by the
+# unrelated file-size worker semaphore in pipeline.py), which instantly
+# blew through Gemini's per-minute request quota and 429'd every chunk
+# at once. This semaphore is created lazily per event loop / settings
+# combo and shared across all GeminiTranscriptionService instances in
+# this process.
+_gemini_semaphores: dict[tuple[str, str], asyncio.Semaphore] = {}
+
+
+def _get_gemini_semaphore(settings: Settings) -> asyncio.Semaphore:
+    key = (settings.gemini_base_url, settings.gemini_model)
+    sem = _gemini_semaphores.get(key)
+    if sem is None:
+        sem = asyncio.Semaphore(max(1, settings.gemini_max_concurrent_requests))
+        _gemini_semaphores[key] = sem
+    return sem
+
+
 class GeminiTranscriptionService:
     def __init__(self, settings: Settings):
         self.settings = settings
         self._client: Optional[httpx.AsyncClient] = None
+        self._semaphore = _get_gemini_semaphore(settings)
 
     def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -31,7 +53,7 @@ class GeminiTranscriptionService:
 
     async def transcribe_chunk(self, chunk_id: int, file_path: Path, start_time: float, end_time: float) -> ChunkTranscript:
         last_error: Exception | None = None
-        
+
         for attempt in range(self.settings.transcription_retry_count + 1):
             try:
                 # Read audio file and convert to base64
@@ -51,14 +73,42 @@ class GeminiTranscriptionService:
                 else:
                     mime_type = mimetypes.guess_type(file_path.name)[0] or "audio/mp3"
 
-                payload = await self._transcribe_via_gemini(audio_b64, mime_type)
+                # FIX: gate the actual network call behind a process-wide
+                # semaphore so only N chunks ever hit Gemini at once,
+                # instead of every chunk firing simultaneously and
+                # tripping the per-minute request quota (429).
+                async with self._semaphore:
+                    payload = await self._transcribe_via_gemini(audio_b64, mime_type)
                 return self._parse_gemini_payload(chunk_id, start_time, end_time, payload)
             except Exception as exc:
                 logger.warning(f"Gemini transcription attempt {attempt + 1} failed for chunk {chunk_id}: {exc}")
                 last_error = exc
                 if attempt >= self.settings.transcription_retry_count:
                     break
-                await asyncio.sleep(2 ** attempt)
+
+                # FIX: 429 (rate limit) needs a much longer wait than a
+                # normal transient error - the old `2 ** attempt` backoff
+                # (1s, 2s, 4s...) is far shorter than Gemini's ~60s
+                # per-minute quota window, so retries just got 429'd
+                # again in lockstep with every other chunk. If Gemini
+                # sends a Retry-After header, honor it exactly; otherwise
+                # use a long backoff with jitter so concurrent chunks
+                # don't all retry at the same instant.
+                status_code = getattr(getattr(exc, "response", None), "status_code", None)
+                if status_code == 429:
+                    retry_after_header = exc.response.headers.get("Retry-After") if hasattr(exc, "response") else None
+                    if retry_after_header:
+                        try:
+                            wait_seconds = float(retry_after_header)
+                        except ValueError:
+                            wait_seconds = 20.0 * (attempt + 1)
+                    else:
+                        wait_seconds = 20.0 * (attempt + 1)
+                    wait_seconds += random.uniform(0, 5)
+                    logger.info(f"Chunk {chunk_id} rate-limited by Gemini (429) - waiting {wait_seconds:.1f}s before retry.")
+                else:
+                    wait_seconds = (2 ** attempt) + random.uniform(0, 1)
+                await asyncio.sleep(wait_seconds)
 
         # Fallback graceful failure object if all retries fail
         return ChunkTranscript(
