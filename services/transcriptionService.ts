@@ -1,9 +1,472 @@
+// import { TranscriptionResult } from "../types";
+// import { TRANSCRIPTION_API_URL } from "./config";
+// import { getAccessToken } from "./authStorage";
+
+// const CHUNKED_UPLOAD_THRESHOLD_BYTES = 0;
+// const MAX_PARALLEL_UPLOADS = 4;
+
+// const authHeader = (): Record<string, string> => {
+//   const token = getAccessToken();
+//   return token ? { Authorization: `Bearer ${token}` } : {};
+// };
+
+// type PipelineEventPayload = {
+//   stage?: string;
+//   message?: string;
+//   progress?: number;
+//   session_id?: string;
+//   result?: Partial<TranscriptionResult>;
+// };
+
+// const parseEventBlocks = (buffer: string) => {
+//   const blocks = buffer.split("\n\n");
+//   const remainder = blocks.pop() || "";
+
+//   const events = blocks
+//     .map((block) => {
+//       const lines = block.split("\n");
+//       const event = lines.find((line) => line.startsWith("event:"))?.slice(6).trim() || "message";
+//       const data = lines
+//         .filter((line) => line.startsWith("data:"))
+//         .map((line) => line.slice(5).trim())
+//         .join("\n");
+
+//       if (!data) {
+//         return null;
+//       }
+
+//       try {
+//         return { event, payload: JSON.parse(data) as PipelineEventPayload };
+//       } catch {
+//         return null;
+//       }
+//     })
+//     .filter((value): value is { event: string; payload: PipelineEventPayload } => value !== null);
+
+//   return { events, remainder };
+// };
+
+// const parseTrailingEventBlock = (buffer: string) => {
+//   const trimmed = buffer.trim();
+//   if (!trimmed) {
+//     return [] as Array<{ event: string; payload: PipelineEventPayload }>;
+//   }
+
+//   const lines = trimmed.split("\n");
+//   const event = lines.find((line) => line.startsWith("event:"))?.slice(6).trim() || "message";
+//   const data = lines
+//     .filter((line) => line.startsWith("data:"))
+//     .map((line) => line.slice(5).trim())
+//     .join("\n");
+
+//   if (!data) {
+//     return [] as Array<{ event: string; payload: PipelineEventPayload }>;
+//   }
+
+//   try {
+//     return [{ event, payload: JSON.parse(data) as PipelineEventPayload }];
+//   } catch {
+//     return [] as Array<{ event: string; payload: PipelineEventPayload }>;
+//   }
+// };
+
+// const normalizeBackendResult = (result?: Partial<TranscriptionResult>,session_id?: string): TranscriptionResult => ({
+//   turns: result?.turns || [],
+//   executiveSynthesis: result?.executiveSynthesis || [],
+//   summary: result?.summary || "",
+//   keyPoints: result?.keyPoints || [],
+//   artifact1_evidence: result?.artifact1_evidence || [],
+//   artifact2_context: result?.artifact2_context || [],
+//   artifact3_chains: result?.artifact3_chains || [],
+//   artifact4_link_map: result?.artifact4_link_map || "Master Research Database Link Verified",
+//   artifact5_hotspots: result?.artifact5_hotspots || [],
+//   strategies: result?.strategies || [],
+//   detected_language: result?.detected_language,
+//   languages: result?.languages || [],
+//   language_metadata: result?.language_metadata || {},
+//   chunk_results: result?.chunk_results || [],
+//   session_id:session_id,
+// });
+
+// const consumeSseResponse = async (
+//   response: Response,
+//   onStatusChange: (status: string, progress?: number) => void,
+//   onPartialResult?: (result: TranscriptionResult) => void,
+// ): Promise<TranscriptionResult> => {
+//   if (!response.ok) {
+//     const errorText = await response.text().catch(() => "");
+//     throw new Error(`Backend transcription failed: ${response.status} ${errorText}`.trim());
+//   }
+
+//   if (!response.body) {
+//     throw new Error("Backend transcription stream was unavailable.");
+//   }
+
+//   const reader = response.body.getReader();
+//   const decoder = new TextDecoder();
+//   let buffer = "";
+//   let finalResult: TranscriptionResult | null = null;
+//   let partialResult: TranscriptionResult | null = null;
+//   let lastStatusMessage = "";
+
+//   const handleEvents = (events: Array<{ event: string; payload: PipelineEventPayload }>) => {
+//     for (const event of events) {
+//       if (event.payload.message) {
+//         lastStatusMessage = event.payload.message;
+//         onStatusChange(event.payload.message, event.payload.progress);
+//       }
+
+//       if (event.event === "error") {
+//         throw new Error(event.payload.message || "Backend transcription failed.");
+//       }
+
+//       if (event.event === "result" && event.payload.result) {
+//         partialResult = normalizeBackendResult(event.payload.result, event.payload.session_id);
+//         onPartialResult?.(partialResult);
+//       }
+
+//       if (event.event === "complete" && event.payload.result) {
+//         finalResult = normalizeBackendResult(event.payload.result,event.payload.session_id);
+//       }
+//     }
+//   };
+
+//   try {
+//     while (true) {
+//       const { done, value } = await reader.read();
+//       if (done) {
+//         break;
+//       }
+
+//       buffer += decoder.decode(value, { stream: true });
+//       const { events, remainder } = parseEventBlocks(buffer);
+//       buffer = remainder;
+//       handleEvents(events);
+//     }
+
+//     buffer += decoder.decode();
+//     handleEvents(parseTrailingEventBlock(buffer));
+//   } finally {
+//     reader.releaseLock();
+//   }
+
+//   if (!finalResult) {
+//     if (partialResult) {
+//       onStatusChange(lastStatusMessage || "Backend stream ended before completion. Showing the latest available result.", 100);
+//       return partialResult;
+//     }
+//     throw new Error(lastStatusMessage || "Backend transcription stream ended without a final result.");
+//   }
+
+//   onStatusChange("Dossier synced from backend pipeline.", 100);
+//   return finalResult;
+// };
+
+// const uploadChunkedAudio = async (
+//   audioFile: File,
+//   onStatusChange: (status: string, progress?: number) => void,
+//   onPartialResult?: (result: TranscriptionResult) => void,
+//   signal?: AbortSignal,
+// ): Promise<TranscriptionResult> => {
+//   onStatusChange("Starting chunked upload session...", 5);
+
+//   const initResponse = await fetch(`${TRANSCRIPTION_API_URL}/api/uploads/init`, {
+//     method: "POST",
+//     headers: { "Content-Type": "application/json", ...authHeader() },
+//     body: JSON.stringify({
+//       filename: audioFile.name,
+//       file_size_bytes: audioFile.size,
+//     }),
+//     signal,
+//   });
+
+//   if (!initResponse.ok) {
+//     const errorText = await initResponse.text().catch(() => "");
+//     throw new Error(`Failed to initialize upload session: ${initResponse.status} ${errorText}`.trim());
+//   }
+
+//   const initPayload = await initResponse.json();
+//   const uploadId = String(initPayload.upload_id || "");
+//   const chunkSizeBytes = Number(initPayload.chunk_size_bytes || 8 * 1024 * 1024);
+//   const totalChunks = Math.max(1, Math.ceil(audioFile.size / chunkSizeBytes));
+
+//   let nextChunkIndex = 0;
+//   let uploadedBytes = 0;
+
+//   const uploadSingleChunk = async (chunkIndex: number) => {
+//     const start = chunkIndex * chunkSizeBytes;
+//     const end = Math.min(audioFile.size, start + chunkSizeBytes);
+//     const chunk = audioFile.slice(start, end);
+//     const chunkFormData = new FormData();
+//     chunkFormData.append("file", chunk, `${audioFile.name}.part${chunkIndex + 1}`);
+//     chunkFormData.append("chunk_index", String(chunkIndex + 1));
+//     chunkFormData.append("total_chunks", String(totalChunks));
+
+//     const response = await fetch(`${TRANSCRIPTION_API_URL}/api/uploads/${uploadId}/chunk`, {
+//       method: "POST",
+//       body: chunkFormData,
+//       signal,
+//     });
+
+//     if (!response.ok) {
+//       const errorText = await response.text().catch(() => "");
+//       throw new Error(`Chunk upload failed: ${response.status} ${errorText}`.trim());
+//     }
+
+//     uploadedBytes += chunk.size;
+//     const percent = Math.max(1, Math.min(100, Math.round((uploadedBytes / audioFile.size) * 100)));
+//     const mappedProgress = Math.max(5, Math.min(19, Math.round((percent / 100) * 19)));
+//     onStatusChange(
+//       `Uploading chunks in parallel... ${percent}% (${Math.min(totalChunks, Math.round(uploadedBytes / chunkSizeBytes))}/${totalChunks})`,
+//       mappedProgress,
+//     );
+//   };
+
+//   const workerCount = Math.min(MAX_PARALLEL_UPLOADS, totalChunks);
+//   await Promise.all(
+//     Array.from({ length: workerCount }, async () => {
+//       while (nextChunkIndex < totalChunks) {
+//         const currentChunkIndex = nextChunkIndex;
+//         nextChunkIndex += 1;
+//         await uploadSingleChunk(currentChunkIndex);
+//       }
+//     }),
+//   );
+
+//   onStatusChange("Upload complete. Waiting for backend transcription events...", 20);
+//   const transcribeResponse = await fetch(`${TRANSCRIPTION_API_URL}/api/uploads/${uploadId}/transcribe`, {
+//     method: "POST",
+//     headers: { ...authHeader() },
+//     signal,
+//   });
+//   return consumeSseResponse(transcribeResponse, onStatusChange, onPartialResult);
+// };
+
+// export const transcribeAudio = async (
+//   audioFile: File,
+//   _mimeType: string,
+//   onStatusChange: (status: string, progress?: number) => void,
+//   onPartialResult?: (result: TranscriptionResult) => void,
+//   signal?: AbortSignal
+// ): Promise<TranscriptionResult> => {
+//   if (audioFile.size >= CHUNKED_UPLOAD_THRESHOLD_BYTES) {
+//     try {
+//       return await uploadChunkedAudio(audioFile, onStatusChange, onPartialResult, signal);
+//     } catch (error: any) {
+//       if (error?.name === "AbortError") {
+//         throw error;
+//       }
+//       console.error("Chunked upload pipeline error:", error);
+//       throw new Error(`Viveka Analysis Failure: ${error.message}`);
+//     }
+//   }
+
+//   onStatusChange("Uploading file to backend. Larger files may take time before transcription starts...", 5);
+
+//   const formData = new FormData();
+//   formData.append("file", audioFile);
+//   formData.append("file_size_bytes", String(audioFile.size));
+
+//   return await new Promise<TranscriptionResult>((resolve, reject) => {
+//     const xhr = new XMLHttpRequest();
+//     let buffer = "";
+//     let processedLength = 0;
+//     let finalResult: TranscriptionResult | null = null;
+//     let partialResult: TranscriptionResult | null = null;
+//     let uploadCompleted = false;
+//     let settled = false;
+//     let lastStatusMessage = "";
+
+//     const rejectOnce = (error: Error) => {
+//       if (settled) {
+//         return;
+//       }
+//       settled = true;
+//       reject(error);
+//     };
+
+//     const resolveOnce = (result: TranscriptionResult) => {
+//       if (settled) {
+//         return;
+//       }
+//       settled = true;
+//       resolve(result);
+//     };
+
+//     const processSseBuffer = () => {
+//       const nextChunk = xhr.responseText.slice(processedLength);
+//       processedLength = xhr.responseText.length;
+//       if (!nextChunk) {
+//         return;
+//       }
+
+//       buffer += nextChunk;
+//       const { events, remainder } = parseEventBlocks(buffer);
+//       buffer = remainder;
+
+//       for (const event of events) {
+//         if (event.payload.message) {
+//           lastStatusMessage = event.payload.message;
+//           onStatusChange(event.payload.message, event.payload.progress);
+//         }
+
+//         if (event.event === "error") {
+//           rejectOnce(new Error(event.payload.message || "Backend transcription failed."));
+//           return;
+//         }
+
+//         if (event.event === "result" && event.payload.result) {
+//           partialResult = normalizeBackendResult(
+//               event.payload.result,
+//               event.payload.session_id
+//           );
+//           onPartialResult?.(partialResult);
+//         }
+
+//         if (event.event === "complete" && event.payload.result) {
+//           finalResult = normalizeBackendResult(
+//               event.payload.result,
+//               event.payload.session_id
+//           );
+//         }
+//       }
+//     };
+
+//     xhr.open("POST", `${TRANSCRIPTION_API_URL}/api/transcribe`, true);
+
+//     xhr.upload.onprogress = (event) => {
+//       if (!event.lengthComputable || uploadCompleted) {
+//         return;
+//       }
+
+//       const percent = Math.max(1, Math.min(100, Math.round((event.loaded / event.total) * 100)));
+//       const mappedProgress = Math.max(5, Math.min(19, Math.round((percent / 100) * 19)));
+//       onStatusChange(`Uploading to backend... ${percent}%`, mappedProgress);
+//     };
+
+//     xhr.onreadystatechange = () => {
+//       if (xhr.readyState >= XMLHttpRequest.HEADERS_RECEIVED && !uploadCompleted) {
+//         uploadCompleted = true;
+//         onStatusChange("Upload complete. Waiting for backend transcription events...", 20);
+//       }
+//     };
+
+//     xhr.onprogress = () => {
+//       processSseBuffer();
+//     };
+
+//     xhr.onerror = () => {
+//       rejectOnce(new Error("Network error while contacting backend transcription service."));
+//     };
+
+//     xhr.onabort = () => {
+//       const abortError = new Error("The transcription request was aborted.") as Error & { name?: string };
+//       abortError.name = "AbortError";
+//       rejectOnce(abortError);
+//     };
+
+//     xhr.onload = () => {
+//       processSseBuffer();
+
+//       const trailingEvents = parseTrailingEventBlock(buffer);
+//       for (const event of trailingEvents) {
+//         if (event.payload.message) {
+//           lastStatusMessage = event.payload.message;
+//           onStatusChange(event.payload.message, event.payload.progress);
+//         }
+
+//         if (event.event === "error") {
+//           rejectOnce(new Error(event.payload.message || "Backend transcription failed."));
+//           return;
+//         }
+
+//         if (event.event === "result" && event.payload.result) {
+//           partialResult = normalizeBackendResult(
+//               event.payload.result,
+//               event.payload.session_id
+//           );
+//           onPartialResult?.(partialResult);
+//         }
+
+//         if (event.event === "complete" && event.payload.result) {
+//           finalResult = normalizeBackendResult(
+//               event.payload.result,
+//               event.payload.session_id
+//           );
+//         }
+//       }
+
+//       if (xhr.status < 200 || xhr.status >= 300) {
+//         rejectOnce(new Error(`Backend transcription failed: ${xhr.status} ${xhr.responseText}`.trim()));
+//         return;
+//       }
+
+//       if (!finalResult) {
+//         if (partialResult) {
+//           onStatusChange(lastStatusMessage || "Backend stream ended before completion. Showing the latest available result.", 100);
+//           resolveOnce(partialResult);
+//           return;
+//         }
+//         rejectOnce(new Error(lastStatusMessage || "Backend transcription stream ended without a final result."));
+//         return;
+//       }
+
+//       onStatusChange("Dossier synced from backend pipeline.", 100);
+//       resolveOnce(finalResult);
+//     };
+
+//     if (signal) {
+//       if (signal.aborted) {
+//         xhr.abort();
+//         return;
+//       }
+
+//       signal.addEventListener(
+//         "abort",
+//         () => {
+//           xhr.abort();
+//         },
+//         { once: true }
+//       );
+//     }
+
+//     xhr.send(formData);
+//   }).catch((error: any) => {
+//     if (error?.name === "AbortError") {
+//       throw error;
+//     }
+//     console.error("Transcription pipeline error:", error);
+//     throw new Error(`Viveka Analysis Failure: ${error.message}`);
+//   });
+// };
+
+
 import { TranscriptionResult } from "../types";
 import { TRANSCRIPTION_API_URL } from "./config";
 import { getAccessToken } from "./authStorage";
 
 const CHUNKED_UPLOAD_THRESHOLD_BYTES = 0;
 const MAX_PARALLEL_UPLOADS = 4;
+
+// Progress messages from the backend that are NOT errors — just status updates.
+// If the stream ends with one of these as lastStatusMessage, treat it as a
+// "still working" state, not a failure.
+const HEARTBEAT_PHRASES = [
+  "Still transcribing",
+  "Larger files can take",
+  "Transcribing chunk",
+  "Queueing chunk",
+  "Completed chunk",
+  "Uploading",
+  "Probing",
+  "Preparing",
+  "Splitting",
+  "Merging",
+  "Generating",
+];
+
+const isHeartbeatMessage = (msg: string): boolean =>
+  HEARTBEAT_PHRASES.some((phrase) => msg.includes(phrase));
 
 const authHeader = (): Record<string, string> => {
   const token = getAccessToken();
@@ -25,7 +488,9 @@ const parseEventBlocks = (buffer: string) => {
   const events = blocks
     .map((block) => {
       const lines = block.split("\n");
-      const event = lines.find((line) => line.startsWith("event:"))?.slice(6).trim() || "message";
+      const event =
+        lines.find((line) => line.startsWith("event:"))?.slice(6).trim() ||
+        "message";
       const data = lines
         .filter((line) => line.startsWith("data:"))
         .map((line) => line.slice(5).trim())
@@ -41,7 +506,10 @@ const parseEventBlocks = (buffer: string) => {
         return null;
       }
     })
-    .filter((value): value is { event: string; payload: PipelineEventPayload } => value !== null);
+    .filter(
+      (value): value is { event: string; payload: PipelineEventPayload } =>
+        value !== null
+    );
 
   return { events, remainder };
 };
@@ -53,7 +521,9 @@ const parseTrailingEventBlock = (buffer: string) => {
   }
 
   const lines = trimmed.split("\n");
-  const event = lines.find((line) => line.startsWith("event:"))?.slice(6).trim() || "message";
+  const event =
+    lines.find((line) => line.startsWith("event:"))?.slice(6).trim() ||
+    "message";
   const data = lines
     .filter((line) => line.startsWith("data:"))
     .map((line) => line.slice(5).trim())
@@ -70,7 +540,10 @@ const parseTrailingEventBlock = (buffer: string) => {
   }
 };
 
-const normalizeBackendResult = (result?: Partial<TranscriptionResult>,session_id?: string): TranscriptionResult => ({
+const normalizeBackendResult = (
+  result?: Partial<TranscriptionResult>,
+  session_id?: string
+): TranscriptionResult => ({
   turns: result?.turns || [],
   executiveSynthesis: result?.executiveSynthesis || [],
   summary: result?.summary || "",
@@ -78,24 +551,27 @@ const normalizeBackendResult = (result?: Partial<TranscriptionResult>,session_id
   artifact1_evidence: result?.artifact1_evidence || [],
   artifact2_context: result?.artifact2_context || [],
   artifact3_chains: result?.artifact3_chains || [],
-  artifact4_link_map: result?.artifact4_link_map || "Master Research Database Link Verified",
+  artifact4_link_map:
+    result?.artifact4_link_map || "Master Research Database Link Verified",
   artifact5_hotspots: result?.artifact5_hotspots || [],
   strategies: result?.strategies || [],
   detected_language: result?.detected_language,
   languages: result?.languages || [],
   language_metadata: result?.language_metadata || {},
   chunk_results: result?.chunk_results || [],
-  session_id:session_id,
+  session_id: session_id,
 });
 
 const consumeSseResponse = async (
   response: Response,
   onStatusChange: (status: string, progress?: number) => void,
-  onPartialResult?: (result: TranscriptionResult) => void,
+  onPartialResult?: (result: TranscriptionResult) => void
 ): Promise<TranscriptionResult> => {
   if (!response.ok) {
     const errorText = await response.text().catch(() => "");
-    throw new Error(`Backend transcription failed: ${response.status} ${errorText}`.trim());
+    throw new Error(
+      `Backend transcription failed: ${response.status} ${errorText}`.trim()
+    );
   }
 
   if (!response.body) {
@@ -109,24 +585,35 @@ const consumeSseResponse = async (
   let partialResult: TranscriptionResult | null = null;
   let lastStatusMessage = "";
 
-  const handleEvents = (events: Array<{ event: string; payload: PipelineEventPayload }>) => {
+  const handleEvents = (
+    events: Array<{ event: string; payload: PipelineEventPayload }>
+  ) => {
     for (const event of events) {
       if (event.payload.message) {
         lastStatusMessage = event.payload.message;
         onStatusChange(event.payload.message, event.payload.progress);
       }
 
+      // Only treat as error if explicitly tagged "error" by the backend
       if (event.event === "error") {
-        throw new Error(event.payload.message || "Backend transcription failed.");
+        throw new Error(
+          event.payload.message || "Backend transcription failed."
+        );
       }
 
       if (event.event === "result" && event.payload.result) {
-        partialResult = normalizeBackendResult(event.payload.result, event.payload.session_id);
+        partialResult = normalizeBackendResult(
+          event.payload.result,
+          event.payload.session_id
+        );
         onPartialResult?.(partialResult);
       }
 
       if (event.event === "complete" && event.payload.result) {
-        finalResult = normalizeBackendResult(event.payload.result,event.payload.session_id);
+        finalResult = normalizeBackendResult(
+          event.payload.result,
+          event.payload.session_id
+        );
       }
     }
   };
@@ -152,10 +639,20 @@ const consumeSseResponse = async (
 
   if (!finalResult) {
     if (partialResult) {
-      onStatusChange(lastStatusMessage || "Backend stream ended before completion. Showing the latest available result.", 100);
+      onStatusChange(
+        lastStatusMessage ||
+          "Backend stream ended before completion. Showing the latest available result.",
+        100
+      );
       return partialResult;
     }
-    throw new Error(lastStatusMessage || "Backend transcription stream ended without a final result.");
+    // FIX: If the last message was a heartbeat (e.g. "Still transcribing 3 chunks"),
+    // don't throw it as an error — it means the connection dropped mid-processing.
+    // Give a clean, actionable message instead.
+    const friendlyError = isHeartbeatMessage(lastStatusMessage)
+      ? "The connection was interrupted while transcription was still running. Please try again — the backend may still be processing."
+      : lastStatusMessage || "Backend transcription stream ended without a final result.";
+    throw new Error(friendlyError);
   }
 
   onStatusChange("Dossier synced from backend pipeline.", 100);
@@ -166,7 +663,7 @@ const uploadChunkedAudio = async (
   audioFile: File,
   onStatusChange: (status: string, progress?: number) => void,
   onPartialResult?: (result: TranscriptionResult) => void,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<TranscriptionResult> => {
   onStatusChange("Starting chunked upload session...", 5);
 
@@ -182,7 +679,9 @@ const uploadChunkedAudio = async (
 
   if (!initResponse.ok) {
     const errorText = await initResponse.text().catch(() => "");
-    throw new Error(`Failed to initialize upload session: ${initResponse.status} ${errorText}`.trim());
+    throw new Error(
+      `Failed to initialize upload session: ${initResponse.status} ${errorText}`.trim()
+    );
   }
 
   const initPayload = await initResponse.json();
@@ -202,23 +701,33 @@ const uploadChunkedAudio = async (
     chunkFormData.append("chunk_index", String(chunkIndex + 1));
     chunkFormData.append("total_chunks", String(totalChunks));
 
-    const response = await fetch(`${TRANSCRIPTION_API_URL}/api/uploads/${uploadId}/chunk`, {
-      method: "POST",
-      body: chunkFormData,
-      signal,
-    });
+    const response = await fetch(
+      `${TRANSCRIPTION_API_URL}/api/uploads/${uploadId}/chunk`,
+      { method: "POST", body: chunkFormData, signal }
+    );
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => "");
-      throw new Error(`Chunk upload failed: ${response.status} ${errorText}`.trim());
+      throw new Error(
+        `Chunk upload failed: ${response.status} ${errorText}`.trim()
+      );
     }
 
     uploadedBytes += chunk.size;
-    const percent = Math.max(1, Math.min(100, Math.round((uploadedBytes / audioFile.size) * 100)));
-    const mappedProgress = Math.max(5, Math.min(19, Math.round((percent / 100) * 19)));
+    const percent = Math.max(
+      1,
+      Math.min(100, Math.round((uploadedBytes / audioFile.size) * 100))
+    );
+    const mappedProgress = Math.max(
+      5,
+      Math.min(19, Math.round((percent / 100) * 19))
+    );
     onStatusChange(
-      `Uploading chunks in parallel... ${percent}% (${Math.min(totalChunks, Math.round(uploadedBytes / chunkSizeBytes))}/${totalChunks})`,
-      mappedProgress,
+      `Uploading chunks in parallel... ${percent}% (${Math.min(
+        totalChunks,
+        Math.round(uploadedBytes / chunkSizeBytes)
+      )}/${totalChunks})`,
+      mappedProgress
     );
   };
 
@@ -230,15 +739,14 @@ const uploadChunkedAudio = async (
         nextChunkIndex += 1;
         await uploadSingleChunk(currentChunkIndex);
       }
-    }),
+    })
   );
 
   onStatusChange("Upload complete. Waiting for backend transcription events...", 20);
-  const transcribeResponse = await fetch(`${TRANSCRIPTION_API_URL}/api/uploads/${uploadId}/transcribe`, {
-    method: "POST",
-    headers: { ...authHeader() },
-    signal,
-  });
+  const transcribeResponse = await fetch(
+    `${TRANSCRIPTION_API_URL}/api/uploads/${uploadId}/transcribe`,
+    { method: "POST", headers: { ...authHeader() }, signal }
+  );
   return consumeSseResponse(transcribeResponse, onStatusChange, onPartialResult);
 };
 
@@ -251,7 +759,12 @@ export const transcribeAudio = async (
 ): Promise<TranscriptionResult> => {
   if (audioFile.size >= CHUNKED_UPLOAD_THRESHOLD_BYTES) {
     try {
-      return await uploadChunkedAudio(audioFile, onStatusChange, onPartialResult, signal);
+      return await uploadChunkedAudio(
+        audioFile,
+        onStatusChange,
+        onPartialResult,
+        signal
+      );
     } catch (error: any) {
       if (error?.name === "AbortError") {
         throw error;
@@ -261,7 +774,10 @@ export const transcribeAudio = async (
     }
   }
 
-  onStatusChange("Uploading file to backend. Larger files may take time before transcription starts...", 5);
+  onStatusChange(
+    "Uploading file to backend. Larger files may take time before transcription starts...",
+    5
+  );
 
   const formData = new FormData();
   formData.append("file", audioFile);
@@ -278,17 +794,13 @@ export const transcribeAudio = async (
     let lastStatusMessage = "";
 
     const rejectOnce = (error: Error) => {
-      if (settled) {
-        return;
-      }
+      if (settled) return;
       settled = true;
       reject(error);
     };
 
     const resolveOnce = (result: TranscriptionResult) => {
-      if (settled) {
-        return;
-      }
+      if (settled) return;
       settled = true;
       resolve(result);
     };
@@ -296,9 +808,7 @@ export const transcribeAudio = async (
     const processSseBuffer = () => {
       const nextChunk = xhr.responseText.slice(processedLength);
       processedLength = xhr.responseText.length;
-      if (!nextChunk) {
-        return;
-      }
+      if (!nextChunk) return;
 
       buffer += nextChunk;
       const { events, remainder } = parseEventBlocks(buffer);
@@ -310,23 +820,26 @@ export const transcribeAudio = async (
           onStatusChange(event.payload.message, event.payload.progress);
         }
 
+        // Only reject on explicit "error" stage events from backend
         if (event.event === "error") {
-          rejectOnce(new Error(event.payload.message || "Backend transcription failed."));
+          rejectOnce(
+            new Error(event.payload.message || "Backend transcription failed.")
+          );
           return;
         }
 
         if (event.event === "result" && event.payload.result) {
           partialResult = normalizeBackendResult(
-              event.payload.result,
-              event.payload.session_id
+            event.payload.result,
+            event.payload.session_id
           );
           onPartialResult?.(partialResult);
         }
 
         if (event.event === "complete" && event.payload.result) {
           finalResult = normalizeBackendResult(
-              event.payload.result,
-              event.payload.session_id
+            event.payload.result,
+            event.payload.session_id
           );
         }
       }
@@ -335,19 +848,28 @@ export const transcribeAudio = async (
     xhr.open("POST", `${TRANSCRIPTION_API_URL}/api/transcribe`, true);
 
     xhr.upload.onprogress = (event) => {
-      if (!event.lengthComputable || uploadCompleted) {
-        return;
-      }
-
-      const percent = Math.max(1, Math.min(100, Math.round((event.loaded / event.total) * 100)));
-      const mappedProgress = Math.max(5, Math.min(19, Math.round((percent / 100) * 19)));
+      if (!event.lengthComputable || uploadCompleted) return;
+      const percent = Math.max(
+        1,
+        Math.min(100, Math.round((event.loaded / event.total) * 100))
+      );
+      const mappedProgress = Math.max(
+        5,
+        Math.min(19, Math.round((percent / 100) * 19))
+      );
       onStatusChange(`Uploading to backend... ${percent}%`, mappedProgress);
     };
 
     xhr.onreadystatechange = () => {
-      if (xhr.readyState >= XMLHttpRequest.HEADERS_RECEIVED && !uploadCompleted) {
+      if (
+        xhr.readyState >= XMLHttpRequest.HEADERS_RECEIVED &&
+        !uploadCompleted
+      ) {
         uploadCompleted = true;
-        onStatusChange("Upload complete. Waiting for backend transcription events...", 20);
+        onStatusChange(
+          "Upload complete. Waiting for backend transcription events...",
+          20
+        );
       }
     };
 
@@ -356,11 +878,17 @@ export const transcribeAudio = async (
     };
 
     xhr.onerror = () => {
-      rejectOnce(new Error("Network error while contacting backend transcription service."));
+      rejectOnce(
+        new Error(
+          "Network error while contacting backend transcription service."
+        )
+      );
     };
 
     xhr.onabort = () => {
-      const abortError = new Error("The transcription request was aborted.") as Error & { name?: string };
+      const abortError = new Error(
+        "The transcription request was aborted."
+      ) as Error & { name?: string };
       abortError.name = "AbortError";
       rejectOnce(abortError);
     };
@@ -376,38 +904,55 @@ export const transcribeAudio = async (
         }
 
         if (event.event === "error") {
-          rejectOnce(new Error(event.payload.message || "Backend transcription failed."));
+          rejectOnce(
+            new Error(
+              event.payload.message || "Backend transcription failed."
+            )
+          );
           return;
         }
 
         if (event.event === "result" && event.payload.result) {
           partialResult = normalizeBackendResult(
-              event.payload.result,
-              event.payload.session_id
+            event.payload.result,
+            event.payload.session_id
           );
           onPartialResult?.(partialResult);
         }
 
         if (event.event === "complete" && event.payload.result) {
           finalResult = normalizeBackendResult(
-              event.payload.result,
-              event.payload.session_id
+            event.payload.result,
+            event.payload.session_id
           );
         }
       }
 
       if (xhr.status < 200 || xhr.status >= 300) {
-        rejectOnce(new Error(`Backend transcription failed: ${xhr.status} ${xhr.responseText}`.trim()));
+        rejectOnce(
+          new Error(
+            `Backend transcription failed: ${xhr.status} ${xhr.responseText}`.trim()
+          )
+        );
         return;
       }
 
       if (!finalResult) {
         if (partialResult) {
-          onStatusChange(lastStatusMessage || "Backend stream ended before completion. Showing the latest available result.", 100);
+          onStatusChange(
+            lastStatusMessage ||
+              "Backend stream ended before completion. Showing the latest available result.",
+            100
+          );
           resolveOnce(partialResult);
           return;
         }
-        rejectOnce(new Error(lastStatusMessage || "Backend transcription stream ended without a final result."));
+        // FIX: Don't surface heartbeat messages as errors in the alert dialog
+        const friendlyError = isHeartbeatMessage(lastStatusMessage)
+          ? "The connection was interrupted while transcription was still running. Please try again."
+          : lastStatusMessage ||
+            "Backend transcription stream ended without a final result.";
+        rejectOnce(new Error(friendlyError));
         return;
       }
 
@@ -420,14 +965,7 @@ export const transcribeAudio = async (
         xhr.abort();
         return;
       }
-
-      signal.addEventListener(
-        "abort",
-        () => {
-          xhr.abort();
-        },
-        { once: true }
-      );
+      signal.addEventListener("abort", () => xhr.abort(), { once: true });
     }
 
     xhr.send(formData);
