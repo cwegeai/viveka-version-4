@@ -104,4 +104,5 @@ export interface TranscriptionResult {
   language_metadata?: Record<string, unknown>;
   chunk_results?: ChunkTranscript[];
   session_id?: string;
+  gemini_processing_seconds?: number;
 }
