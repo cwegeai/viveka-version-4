@@ -1,3 +1,8 @@
+# =============================================================================
+# Gemini Service
+# Handles translation, transliteration, summary generation,
+# and prepares the final transcript for report generation.
+# =============================================================================
 from __future__ import annotations
 
 import asyncio
@@ -27,7 +32,7 @@ from .models import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
+# Check whether the given text contains non-English characters.
 def _contains_non_ascii_letters(text: str) -> bool:
     return any(ord(char) > 127 and char.isalpha() for char in (text or ""))
 
@@ -63,11 +68,13 @@ def _contains_indic_script(text: str) -> bool:
 
 
 _CHARS_PER_TOKEN = 4  # rough approximation for token cost estimation
-
+    
+# Estimate the approximate number of tokens used by the AI model.
 def _estimate_tokens(text: str) -> int:
     return max(1, len(text) // _CHARS_PER_TOKEN)
-
-
+    
+# Detect the script/language (Malayalam, Tamil, Telugu, etc.)
+# based on Unicode character ranges.
 def _detect_script(text: str) -> str:
     """Return a human-readable script name for the dominant non-ASCII script."""
     if not text:
@@ -109,7 +116,7 @@ def _looks_summarized(original: str, translated: str) -> bool:
     t_words = len(t.split())
     return t_words < max(3, o_words * 0.35)
 
-
+# Check whether a transcript still needs translation.
 def _needs_translation(turn: TranscriptTurn) -> bool:
     """True if the turn still needs transliteration or translation."""
     original = (turn.original or "").strip()
@@ -124,7 +131,7 @@ def _needs_translation(turn: TranscriptTurn) -> bool:
         return True
     return False
 
-
+# Generate a basic summary if AI summary generation fails.
 def _fallback_summary(turns: list[TranscriptTurn]) -> str:
     snippets = []
     for turn in turns[:3]:
@@ -133,7 +140,7 @@ def _fallback_summary(turns: list[TranscriptTurn]) -> str:
             snippets.append(t)
     return " ".join(snippets) if snippets else "Interview transcript generated."
 
-
+# Extract JSON safely from the Gemini API response.
 def _extract_json_object(raw_text: str) -> dict[str, Any] | None:
     raw_text = raw_text.strip()
     if not raw_text:
@@ -182,12 +189,13 @@ class GeminiBlockedError(Exception):
     isolate and recover the rest — whereas retrying identically, or
     splitting after a plain rate-limit exhaustion, wouldn't help and would
     only spend more of the request budget."""
-
+    # Initialize Gemini service with application settings.
     def __init__(self, finish_reason: str):
         self.finish_reason = finish_reason
         super().__init__(f"Gemini blocked: finishReason={finish_reason}")
 
-
+# Main service responsible for translation, transliteration,
+# summary generation, and preparing the final transcript.
 class GeminiArtifactService:
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -349,6 +357,8 @@ class GeminiArtifactService:
         # silently condensing (summarizing) turns instead of translating them
         # verbatim. Splitting on characters too keeps each call's expected
         # output small enough to come back complete.
+        # Limit the number of turns and total characters in each batch
+        # to improve Gemini performance and avoid token limit issues.
         BATCH_TURNS = 20
         BATCH_CHARS = 6000
         pending_indices = [i for i, t in enumerate(turns) if _needs_translation(t)]
@@ -598,18 +608,21 @@ class GeminiArtifactService:
     # ------------------------------------------------------------------
 
     async def generate(self, merged: MergedTranscript) -> FinalResult:
+        # Build the initial transcript structure
         result = self.build_default_result(merged)
         phase_started = time.monotonic()
         logger.info(f"Gemini artifact generation starting for {len(result.turns)} turn(s)...")
 
         # 1. Translate + transliterate ALL turns
         try:
+            # Translate and transliterate all transcript turns
             result.turns = await self._translate_all_turns(result.turns)
         except Exception as e:
             logger.error(f"Translation pass failed: {e}", exc_info=True)
 
         # 2. Generate summary
         try:
+            # Generate interview summary and key points
             summary, key_points = await self._generate_summary(merged, result.turns)
             result.summary = summary
             result.keyPoints = key_points
@@ -627,6 +640,7 @@ class GeminiArtifactService:
         )
 
         # 3. Populate metrics from result
+        # Store processing metrics for the admin dashboard
         if self.metrics is not None:
             self.metrics.detected_language = result.detected_language or ""
             scripts: set[str] = set()
