@@ -19,7 +19,8 @@ from .models import ChunkTranscript, SpeakerSegment, TranscriptWord
 
 logger = logging.getLogger(__name__)
 
-
+# Main service responsible for transcribing audio chunks
+# using the Gemini API and returning structured transcripts.
 class GeminiTranscriptionBlockedError(Exception):
     """Raised when Gemini returns a blocked/cutoff finishReason (MAX_TOKENS,
     RECITATION, SAFETY, OTHER) for a transcription request. Distinct from a
@@ -44,7 +45,7 @@ class GeminiTranscriptionService:
         self.settings = settings
         self._client: Optional[httpx.AsyncClient] = None
         self.total_gemini_seconds: float = 0.0
-
+    # Create and reuse a single HTTP client for Gemini API requests.
     def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
             self._client = httpx.AsyncClient(
@@ -52,7 +53,8 @@ class GeminiTranscriptionService:
                 limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
             )
         return self._client
-
+    # Transcribe a single audio chunk.
+    # Handles retries, blocked responses, and recursive chunk splitting
     async def transcribe_chunk(
         self,
         chunk_id: int,
@@ -70,11 +72,15 @@ class GeminiTranscriptionService:
             call_started = time.monotonic()
             try:
                 # Read audio file and convert to base64
+                # Read the audio chunk and encode it as Base64
+                # before sending it to the Gemini API.
                 audio_bytes = await asyncio.to_thread(file_path.read_bytes)
                 audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
 
                 # STRICT FIX: Normalize MIME types explicitly to standard Gemini accepted strings
                 ext = file_path.suffix.lower()
+                # Determine the correct MIME type
+                # based on the uploaded audio format.
                 if ext in [".mp3", ".mpeg"]:
                     mime_type = "audio/mp3"
                 elif ext == ".wav":
@@ -87,6 +93,8 @@ class GeminiTranscriptionService:
                     mime_type = mimetypes.guess_type(file_path.name)[0] or "audio/mp3"
 
                 logger.info(f"Transcribing {label} (attempt {attempt + 1}), calling Gemini...")
+                # Send the audio chunk to Gemini
+                # for speech-to-text transcription.
                 payload = await self._transcribe_via_gemini(audio_b64, mime_type)
                 self.total_gemini_seconds += time.monotonic() - call_started
                 logger.info(
@@ -143,7 +151,8 @@ class GeminiTranscriptionService:
             ],
             error=str(last_error) if last_error else "Unknown transcription error",
         )
-
+    # Split large audio chunks into smaller parts
+   # when Gemini cannot process them in a single request.
     async def _transcribe_by_splitting(
         self,
         chunk_id: int,
@@ -165,6 +174,8 @@ class GeminiTranscriptionService:
 
         left_path: Path | None = None
         right_path: Path | None = None
+        # Generate two smaller audio chunks
+        # for recursive transcription.
         try:
             left_manifest = await asyncio.to_thread(
                 create_chunk, file_path, output_dir, self.settings, left_id, 0.0, midpoint
@@ -214,7 +225,8 @@ class GeminiTranscriptionService:
             f"{self.settings.gemini_base_url}/models/{model}:generateContent"
             f"?key={self.settings.gemini_api_key}"
         )
-
+        # Prompt instructing Gemini to perform
+        # transcription and speaker diarization.
         prompt = (
             "You are an expert audio transcription and diarization engine. "
             "Analyze the provided audio file and return a verbatim transcript. "
@@ -280,6 +292,8 @@ class GeminiTranscriptionService:
             self.settings.gemini_min_call_interval_seconds,
         )
         async with limiter:
+            # Call the Gemini API
+            # to transcribe the uploaded audio.
             response = await client.post(url, headers=headers, json=request_body)
         response.raise_for_status()
 
@@ -310,7 +324,8 @@ class GeminiTranscriptionService:
             return json.loads(clean_text)
         except Exception:
             return {"transcript": clean_text, "language": "en", "speakers": []}
-
+    # Convert the Gemini response into
+    # the application's transcript format.
     def _parse_gemini_payload(self, chunk_id: int, chunk_start: float, chunk_end: float, data: dict[str, Any]) -> ChunkTranscript:
         transcript = data.get("transcript", "").strip()
         language = data.get("language", "unknown")
@@ -318,7 +333,8 @@ class GeminiTranscriptionService:
 
         speakers: list[SpeakerSegment] = []
         words: list[TranscriptWord] = []
-
+        # Process each speaker segment and
+        # convert relative timestamps to absolute timestamps.
         for item in raw_speakers:
             rel_start = float(item.get("start_time", 0.0))
             rel_end = float(item.get("end_time", rel_start))
@@ -356,7 +372,8 @@ class GeminiTranscriptionService:
                     language_metadata={}
                 )
             )
-
+        # Return the final structured transcript
+        # for this audio chunk.
         return ChunkTranscript(
             chunk_id=chunk_id,
             start_time=chunk_start,
