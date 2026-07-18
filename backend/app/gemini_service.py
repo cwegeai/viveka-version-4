@@ -1,18 +1,13 @@
-# =============================================================================
-# Gemini Service
-# Handles translation, transliteration, summary generation,
-# and prepares the final transcript for report generation.
-# =============================================================================
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
 import re
-import time
 from typing import TYPE_CHECKING, Any, Optional
 
 import httpx
+from deep_translator import GoogleTranslator
 
 if TYPE_CHECKING:
     from .activity_repository import TranscriptionMetrics
@@ -20,7 +15,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 from .config import Settings
-from .gemini_rate_limiter import get_gemini_rate_limiter
 from .merge_engine import format_timestamp
 from .models import (
     FinalResult,
@@ -32,49 +26,19 @@ from .models import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-# Check whether the given text contains non-English characters.
+
 def _contains_non_ascii_letters(text: str) -> bool:
     return any(ord(char) > 127 and char.isalpha() for char in (text or ""))
 
 
-# Unicode block ranges for the Indic scripts this pipeline sees. Used to
-# detect "Gemini just echoed the source script back" — the actual failure
-# mode to reject — as distinct from "the output contains non-ASCII
-# characters," which is also true of correct Latin transliteration (IAST
-# diacritics like ā, ī, ū, ṃ, ḥ, ś, ṣ, ṇ all have ord() > 127 and are
-# alphabetic). The old check rejected legitimate diacritic-bearing
-# transliteration output as if it were untransliterated, silently falling
-# back to the original-script placeholder — which read to users as
-# "transliteration/translation didn't happen."
-_INDIC_SCRIPT_RANGES: tuple[tuple[int, int], ...] = (
-    (0x0900, 0x097F),  # Devanagari
-    (0x0980, 0x09FF),  # Bengali
-    (0x0A00, 0x0A7F),  # Gurmukhi
-    (0x0A80, 0x0AFF),  # Gujarati
-    (0x0B00, 0x0B7F),  # Oriya
-    (0x0B80, 0x0BFF),  # Tamil
-    (0x0C00, 0x0C7F),  # Telugu
-    (0x0C80, 0x0CFF),  # Kannada
-    (0x0D00, 0x0D7F),  # Malayalam
-)
-
-
-def _contains_indic_script(text: str) -> bool:
-    return any(
-        lo <= ord(char) <= hi
-        for char in (text or "")
-        for lo, hi in _INDIC_SCRIPT_RANGES
-    )
-
+NON_ASCII_RUN_PATTERN = re.compile(r"[^\x00-\x7F]+")
 
 _CHARS_PER_TOKEN = 4  # rough approximation for token cost estimation
-    
-# Estimate the approximate number of tokens used by the AI model.
+
 def _estimate_tokens(text: str) -> int:
     return max(1, len(text) // _CHARS_PER_TOKEN)
-    
-# Detect the script/language (Malayalam, Tamil, Telugu, etc.)
-# based on Unicode character ranges.
+
+
 def _detect_script(text: str) -> str:
     """Return a human-readable script name for the dominant non-ASCII script."""
     if not text:
@@ -101,22 +65,6 @@ def _looks_untranslated(original: str, translated: str) -> bool:
     return o == t
 
 
-def _looks_summarized(original: str, translated: str) -> bool:
-    """Heuristic: flag translations that are suspiciously short relative to
-    the source. Long turns crammed into large batches sometimes cause Gemini
-    to condense/summarize rather than translate verbatim, which reads to
-    users as "the translation got cut off / summarized" instead of a full
-    translation. Anything this flags is discarded — the turn is left as-is
-    rather than accepting a condensed stand-in for a full translation."""
-    o = (original or "").strip()
-    t = (translated or "").strip()
-    if len(o) < 40 or not t:
-        return False
-    o_words = len(o.split())
-    t_words = len(t.split())
-    return t_words < max(3, o_words * 0.35)
-
-# Check whether a transcript still needs translation.
 def _needs_translation(turn: TranscriptTurn) -> bool:
     """True if the turn still needs transliteration or translation."""
     original = (turn.original or "").strip()
@@ -125,13 +73,13 @@ def _needs_translation(turn: TranscriptTurn) -> bool:
     translated = (turn.translated or "").strip()
     transliterated = (turn.transliterated or "").strip()
     # Needs work if translation missing/same as original, or transliteration missing/same
-    if not translated or translated == original or _contains_indic_script(translated):
+    if not translated or translated == original or _contains_non_ascii_letters(translated):
         return True
     if not transliterated or transliterated == original:
         return True
     return False
 
-# Generate a basic summary if AI summary generation fails.
+
 def _fallback_summary(turns: list[TranscriptTurn]) -> str:
     snippets = []
     for turn in turns[:3]:
@@ -140,7 +88,7 @@ def _fallback_summary(turns: list[TranscriptTurn]) -> str:
             snippets.append(t)
     return " ".join(snippets) if snippets else "Interview transcript generated."
 
-# Extract JSON safely from the Gemini API response.
+
 def _extract_json_object(raw_text: str) -> dict[str, Any] | None:
     raw_text = raw_text.strip()
     if not raw_text:
@@ -166,41 +114,71 @@ def _ensure_list(value: Any) -> list[Any]:
     return [value]
 
 
-def _extract_turns_payload(parsed: Any) -> list[Any]:
-    """Pull the turns list out of a parsed Gemini response.
-
-    The prompt asks for {"turns": [...]}, but the model sometimes returns the
-    bare array instead of wrapping it in an object — parsed is then a list,
-    not a dict, and parsed.get(...) would raise AttributeError. Accept both
-    shapes so one batch's formatting choice doesn't blow up the whole pass."""
-    if isinstance(parsed, list):
-        return parsed
-    if isinstance(parsed, dict):
-        return _ensure_list(parsed.get("turns"))
-    return []
-
-
-class GeminiBlockedError(Exception):
-    """Raised when Gemini returns a blocked/cutoff finishReason (MAX_TOKENS,
-    RECITATION, SAFETY, OTHER). Distinct from a plain None return (network
-    error, rate limit exhausted after retries): a block is often caused by
-    one specific turn's content or a batch being too large, and splitting
-    the batch into smaller pieces and retrying those individually can
-    isolate and recover the rest — whereas retrying identically, or
-    splitting after a plain rate-limit exhaustion, wouldn't help and would
-    only spend more of the request budget."""
-    # Initialize Gemini service with application settings.
-    def __init__(self, finish_reason: str):
-        self.finish_reason = finish_reason
-        super().__init__(f"Gemini blocked: finishReason={finish_reason}")
-
-# Main service responsible for translation, transliteration,
-# summary generation, and preparing the final transcript.
 class GeminiArtifactService:
     def __init__(self, settings: Settings):
         self.settings = settings
+        self._semaphore: Optional[asyncio.Semaphore] = None
         self.metrics: Optional[TranscriptionMetrics] = None
-        self.total_gemini_seconds: float = 0.0
+
+    def _get_semaphore(self) -> asyncio.Semaphore:
+        if self._semaphore is None:
+            # Limit to 1 concurrent Gemini call — prevents 503 rate limit bursts.
+            # Batches are processed sequentially; GoogleTranslator handles fallback instantly.
+            self._semaphore = asyncio.Semaphore(1)
+        return self._semaphore
+
+    # ------------------------------------------------------------------
+    # GoogleTranslator fallback — fast, free, no quota
+    # ------------------------------------------------------------------
+
+    async def _google_translate(self, text: str) -> str:
+        """Translate text to English via GoogleTranslator (runs in thread)."""
+        if not text.strip() or not _contains_non_ascii_letters(text):
+            return text
+
+        def _do() -> str:
+            return GoogleTranslator(source="auto", target="en").translate(text)
+
+        try:
+            result = await asyncio.to_thread(_do)
+            if result and result.strip() and result.strip() != text.strip():
+                return result.strip()
+        except Exception:
+            pass
+
+        # Segment fallback — translate non-ASCII runs individually
+        parts: list[str] = []
+        last = 0
+        changed = False
+        for match in NON_ASCII_RUN_PATTERN.finditer(text):
+            s, e = match.span()
+            if s > last:
+                parts.append(text[last:s])
+            seg = match.group(0)
+            try:
+                tseg = await asyncio.to_thread(
+                    lambda x=seg: GoogleTranslator(source="auto", target="en").translate(x)
+                )
+            except Exception:
+                tseg = seg
+            if tseg and tseg != seg:
+                changed = True
+            parts.append(tseg or seg)
+            last = e
+        if last < len(text):
+            parts.append(text[last:])
+        rebuilt = "".join(parts).strip()
+        return rebuilt if changed and rebuilt else text
+
+    async def _google_transliterate(self, text: str) -> str:
+        """
+        Best-effort Latin transliteration via GoogleTranslator.
+        GoogleTranslator doesn't have a true transliterate endpoint, so we
+        translate to English — the transliteration is carried implicitly in
+        Deepgram's output or we just return the translation as a proxy.
+        For genuine transliteration we rely on Gemini when available.
+        """
+        return await self._google_translate(text)
 
     # ------------------------------------------------------------------
     # Gemini HTTP helper
@@ -215,35 +193,21 @@ class GeminiArtifactService:
     ) -> dict[str, Any] | None:
         """Call Gemini and return parsed JSON.
 
-        Only tries the configured model (default: gemini-2.5-flash). There is
-        no non-Gemini fallback anywhere upstream of this — translation and
-        transliteration are Gemini-only — so transient failures (429/5xx,
-        timeouts) get a generous retry budget with backoff rather than
-        giving up quickly. A blocked/cut-off response (MAX_TOKENS,
-        RECITATION, SAFETY, OTHER) raises GeminiBlockedError instead of
-        returning None, so the caller can distinguish "worth splitting the
-        batch and retrying the pieces" from "exhausted retries, nothing more
-        to try." Returns None only when transient retries are exhausted.
+        Only tries the configured model (default: gemini-2.5-flash).
+        On 503/429 waits progressively before retrying — up to 4 attempts.
+        Returns None if all attempts fail so callers use GoogleTranslator fallback.
         """
         model = self.settings.gemini_model  # e.g. "gemini-2.5-flash"
         url = (
             f"{self.settings.gemini_base_url}/models/{model}:generateContent"
             f"?key={self.settings.gemini_api_key}"
         )
-        # Progressive waits for 429/5xx/network errors. No fallback exists
-        # upstream anymore, so this affords more patience than a quick give-up.
-        retry_waits = [5, 10, 20, 30, 45, 60]
-        max_attempts = len(retry_waits)
-        limiter = get_gemini_rate_limiter(
-            self.settings.gemini_max_concurrent_calls,
-            self.settings.gemini_min_call_interval_seconds,
-        )
+        # Progressive waits for 429/5xx: 5s, 15s, 30s, 60s
+        retry_waits = [5, 15, 30, 60]
 
-        for attempt in range(max_attempts):
-            call_started = time.monotonic()
+        for attempt in range(4):
             try:
-                async with limiter:
-                    logger.info(f"[{label}] {model} calling Gemini (attempt {attempt + 1}/{max_attempts})...")
+                async with self._get_semaphore():
                     async with httpx.AsyncClient(timeout=timeout) as client:
                         response = await client.post(
                             url,
@@ -253,54 +217,43 @@ class GeminiArtifactService:
                                 "generationConfig": {
                                     "temperature": 0.1,
                                     "responseMimeType": "application/json",
-                                    "maxOutputTokens": 65536,
-                                    # gemini-2.5-flash spends output-token
-                                    # budget on internal "thinking" by default,
-                                    # ahead of the actual JSON. That's wasted
-                                    # cost/latency for a mechanical translate
-                                    # batch and can itself trigger MAX_TOKENS
-                                    # cutoffs — disable it.
-                                    "thinkingConfig": {"thinkingBudget": 0},
                                 },
                             },
                         )
-                self.total_gemini_seconds += time.monotonic() - call_started
 
                 if response.status_code in {429, 500, 502, 503, 504}:
-                    wait = retry_waits[attempt]
+                    wait = retry_waits[min(attempt, len(retry_waits) - 1)]
                     logger.warning(
                         f"[{label}] {model} HTTP {response.status_code} "
-                        f"(attempt {attempt + 1}/{max_attempts}) — waiting {wait}s"
+                        f"(attempt {attempt + 1}/4) — waiting {wait}s"
                     )
-                    if attempt < max_attempts - 1:
+                    if attempt < 3:
                         await asyncio.sleep(wait)
                         continue
-                    logger.error(f"[{label}] {model} HTTP {response.status_code} after {max_attempts} attempts — giving up")
+                    logger.error(f"[{label}] {model} HTTP {response.status_code} after 4 attempts — giving up")
                     return None
 
                 response.raise_for_status()
                 payload = response.json()
+                
 
                 candidates_list = payload.get("candidates") or []
                 if not candidates_list:
                     block = payload.get("promptFeedback", {}).get("blockReason", "")
                     logger.warning(f"[{label}] {model} no candidates. blockReason={block}")
-                    raise GeminiBlockedError(block or "NO_CANDIDATES")
+                    return None
 
                 candidate = candidates_list[0]
                 finish = candidate.get("finishReason", "STOP")
                 if finish in {"MAX_TOKENS", "RECITATION", "SAFETY", "OTHER"}:
-                    logger.warning(f"[{label}] {model} response blocked/cut off: finishReason={finish}")
-                    raise GeminiBlockedError(finish)
+                    logger.warning(f"[{label}] {model} response cut off: finishReason={finish}")
+                    return None
 
                 parts_list = candidate.get("content", {}).get("parts", [])
                 raw = parts_list[0].get("text", "") if parts_list else ""
                 parsed = _extract_json_object(raw)
                 if parsed:
-                    logger.info(
-                        f"[{label}] {model} OK in {time.monotonic() - call_started:.1f}s "
-                        f"(attempt {attempt + 1}/{max_attempts})"
-                    )
+                    logger.info(f"[{label}] OK with {model}")
                     # Track token usage for admin metrics
                     if self.metrics is not None:
                         usage = payload.get("usageMetadata", {})
@@ -316,13 +269,15 @@ class GeminiArtifactService:
                 return None
 
             except (httpx.TimeoutException, httpx.NetworkError) as exc:
-                self.total_gemini_seconds += time.monotonic() - call_started
-                wait = retry_waits[attempt]
-                logger.warning(f"[{label}] {model} network/timeout (attempt {attempt + 1}/{max_attempts}): {exc}")
-                if attempt < max_attempts - 1:
+                wait = retry_waits[min(attempt, len(retry_waits) - 1)]
+                logger.warning(f"[{label}] {model} network/timeout (attempt {attempt + 1}/4): {exc}")
+                if attempt < 3:
                     await asyncio.sleep(wait)
                     continue
-                logger.error(f"[{label}] {model} network/timeout after {max_attempts} attempts — giving up")
+                logger.error(f"[{label}] {model} network/timeout after 4 attempts — giving up")
+                return None
+            except Exception as exc:
+                logger.error(f"[{label}] {model} unexpected error: {exc}", exc_info=True)
                 return None
 
         return None
@@ -333,160 +288,63 @@ class GeminiArtifactService:
 
     async def _translate_all_turns(self, turns: list[TranscriptTurn]) -> list[TranscriptTurn]:
         """
-        Translate and transliterate ALL turns that need it — Gemini only.
+        Translate and transliterate ALL turns that need it.
 
         Strategy:
-        1. Try Gemini in batches (capped by turn count and character volume).
-        2. If a batch comes back blocked/cut off (MAX_TOKENS, RECITATION,
-           SAFETY, OTHER), split it in half and retry the pieces — this is
-           usually one turn's content or a batch being too large, and
-           isolating it lets the rest of the batch still succeed. Recurses
-           down to single turns if needed.
-        3. Anything that still doesn't come back from Gemini after that is
-           left as-is (original text in both fields) rather than being
-           padded out with a non-Gemini substitute — no other translation or
-           transliteration source is used anywhere in this pipeline.
+        1. Try Gemini in batches of 20 for speed (transliteration + translation).
+        2. For any turn that Gemini misses or still needs work, fall back to
+           GoogleTranslator (translation only — transliteration stays as-is or
+           is set equal to the translation as a proxy).
+
+        This guarantees no turn gets cut off — every turn goes through at least
+        the GoogleTranslator path.
         """
         if not any(_needs_translation(t) for t in turns):
             return turns
 
-        # Batch turns for Gemini, capped by both count and total character
-        # volume. A fixed turn-count cap alone isn't enough — files with long
-        # monologue-style turns can still blow past the model's comfortable
-        # output budget in one call, which pushes it toward truncating or
-        # silently condensing (summarizing) turns instead of translating them
-        # verbatim. Splitting on characters too keeps each call's expected
-        # output small enough to come back complete.
-        # Limit the number of turns and total characters in each batch
-        # to improve Gemini performance and avoid token limit issues.
-        BATCH_TURNS = 20
-        BATCH_CHARS = 6000
+        # Split into batches of 20 for Gemini
+        BATCH = 20
         pending_indices = [i for i, t in enumerate(turns) if _needs_translation(t)]
 
-        def _make_batches(indices: list[int]) -> list[list[int]]:
-            batches: list[list[int]] = []
-            current: list[int] = []
-            current_chars = 0
-            for idx in indices:
-                turn_chars = len(turns[idx].original or "")
-                if current and (
-                    len(current) >= BATCH_TURNS or current_chars + turn_chars > BATCH_CHARS
-                ):
-                    batches.append(current)
-                    current = []
-                    current_chars = 0
-                current.append(idx)
-                current_chars += turn_chars
-            if current:
-                batches.append(current)
-            return batches
-
-        # Gemini pass — batches run concurrently (bounded + spaced by the
-        # shared rate limiter inside _request_json), so a large file's many
-        # batches don't run fully serially, and don't burst past quota either.
+        # Gemini pass — send batches
         gemini_results: dict[str, dict[str, str]] = {}  # mu_id → {transliterated, translated}
-        batches = _make_batches(pending_indices)
-        total_batches = len(batches)
-        phase_started = time.monotonic()
-        logger.info(
-            f"Translation: {len(pending_indices)} turn(s) needing work across "
-            f"{total_batches} batch(es), up to {self.settings.gemini_max_concurrent_calls} "
-            f"concurrent Gemini call(s)"
-        )
+        for batch_start in range(0, len(pending_indices), BATCH):
+            batch_idx = pending_indices[batch_start: batch_start + BATCH]
+            batch = [turns[i] for i in batch_idx]
 
-        def _build_prompt(batch: list[TranscriptTurn]) -> str:
             lean = [
                 {"id": t.mu_id, "spk": t.speaker, "orig": t.original}
                 for t in batch
             ]
-            return (
+            prompt = (
                 "You are a translation and transliteration engine. "
                 "Return ONLY valid JSON: {\"turns\": [{\"id\": <mu_id>, "
                 "\"transliterated\": <Latin script>, \"translated\": <English>}, ...]}. "
                 "For every input turn: set transliterated to Latin-script romanisation of orig. "
                 "Set translated to fluent English. "
-                "translated must be a full, verbatim, line-by-line translation of orig — "
-                "never summarize, condense, paraphrase away detail, or shorten it. "
-                "It should read as a complete translation of the same length and detail as orig, "
-                "not a synopsis. "
                 "If orig is already English/Latin, transliterated = orig and translated = orig. "
                 "Process ALL turns. No preamble.\n\n"
                 f"TURNS: {json.dumps(lean, ensure_ascii=False)}"
             )
-
-        async def _translate_batch(label: str, batch_idx: list[int]) -> None:
-            batch = [turns[i] for i in batch_idx]
-            prompt = _build_prompt(batch)
             try:
-                parsed = await self._request_json(prompt, timeout=45.0, label=label)
+                parsed = await self._request_json(prompt, timeout=45.0, label="batch-translate")
+                if parsed is None:
+                    continue
+
+                if not isinstance(parsed, dict):
+                    logger.warning(f"Unexpected Gemini response type: {type(parsed)}")
+                    continue
                 if parsed:
-                    items = _extract_turns_payload(parsed)
-                    matched_ids: set[str] = set()
-                    for item in items:
+                    for item in _ensure_list(parsed.get("turns")):
                         if isinstance(item, dict) and item.get("id"):
-                            item_id = str(item["id"]).strip()
-                            gemini_results[item_id] = {
+                            gemini_results[item["id"]] = {
                                 "transliterated": str(item.get("transliterated") or "").strip(),
                                 "translated": str(item.get("translated") or "").strip(),
                             }
-                            matched_ids.add(item_id)
-                    # If ids didn't line up (Gemini renamed/dropped them) but the
-                    # item count matches the batch, fall back to positional
-                    # matching rather than losing the whole batch's work.
-                    unmatched = [t for t in batch if t.mu_id not in matched_ids]
-                    if unmatched and len(items) == len(batch):
-                        logger.warning(
-                            f"[{label}] {len(unmatched)}/{len(batch)} turn id(s) didn't "
-                            f"match Gemini's response ids — matching positionally instead"
-                        )
-                        for turn_obj, item in zip(batch, items):
-                            if isinstance(item, dict) and turn_obj.mu_id not in gemini_results:
-                                gemini_results[turn_obj.mu_id] = {
-                                    "transliterated": str(item.get("transliterated") or "").strip(),
-                                    "translated": str(item.get("translated") or "").strip(),
-                                }
-                    elif unmatched:
-                        logger.warning(
-                            f"[{label}] {len(unmatched)}/{len(batch)} turn(s) missing from "
-                            f"Gemini's response (got {len(items)} item(s) for {len(batch)} "
-                            f"turn(s)) — left as original text"
-                        )
-            except GeminiBlockedError as e:
-                if len(batch_idx) > 1:
-                    mid = len(batch_idx) // 2
-                    logger.warning(
-                        f"[{label}] blocked ({e.finish_reason}) — splitting "
-                        f"{len(batch_idx)} turns and retrying the halves"
-                    )
-                    await asyncio.gather(
-                        _translate_batch(f"{label}.a", batch_idx[:mid]),
-                        _translate_batch(f"{label}.b", batch_idx[mid:]),
-                    )
-                else:
-                    logger.warning(
-                        f"[{label}] turn {turns[batch_idx[0]].mu_id} blocked "
-                        f"({e.finish_reason}) even alone — leaving as original text"
-                    )
             except Exception as e:
-                logger.error(f"[{label}] translate failed: {e}", exc_info=True)
+                logger.error(f"Batch translate failed: {e}", exc_info=True)
 
-        await asyncio.gather(
-            *(
-                _translate_batch(f"batch-translate {i + 1}/{total_batches}", batch_idx)
-                for i, batch_idx in enumerate(batches)
-            )
-        )
-        logger.info(
-            f"Translation: all {total_batches} batch(es) finished in "
-            f"{time.monotonic() - phase_started:.1f}s wall time "
-            f"({self.total_gemini_seconds:.1f}s cumulative Gemini call time)"
-        )
-
-        # Apply Gemini results. Gemini-only, by design: anything it didn't
-        # come back with is left exactly as it was (original text in both
-        # fields) rather than being patched from a different, lesser source —
-        # that's what was silently duplicating translation into
-        # transliteration before.
+        # Apply Gemini results + GoogleTranslator fallback for anything missed
         result_turns: list[TranscriptTurn] = []
         for turn in turns:
             if not _needs_translation(turn):
@@ -498,36 +356,30 @@ class GeminiArtifactService:
             g_translated = gemini.get("translated", "").strip()
 
             # ── Translation ──────────────────────────────────────────
-            # Reject only if Gemini echoed the source script back untouched —
-            # not merely "contains non-ASCII," which is also true of correct
-            # transliteration/translation output (diacritics, accented
-            # proper nouns).
-            if (
-                g_translated
-                and not _contains_indic_script(g_translated)
-                and g_translated != turn.original
-                and not _looks_summarized(turn.original, g_translated)
-            ):
+            if g_translated and not _contains_non_ascii_letters(g_translated) and g_translated != turn.original:
                 translated = g_translated
             else:
-                translated = turn.translated
+                # GoogleTranslator fallback — always works, free, instant
+                try:
+                    translated = await self._google_translate(turn.original)
+                except Exception:
+                    translated = turn.translated or turn.original
 
             # ── Transliteration ──────────────────────────────────────
-            # Gemini's output only — never derived from the translation.
-            # Correct Latin transliteration of Indic scripts (IAST-style)
-            # legitimately contains diacritics (ā, ī, ū, ṃ, ḥ, ś, ṣ, ṇ, ...),
-            # which are non-ASCII but not the source script — only reject if
-            # the source script itself is still present.
-            if g_translit and not _contains_indic_script(g_translit) and g_translit != translated:
+            # Priority: Gemini Latin → English translation as proxy → keep existing
+            # We NEVER leave the original non-Latin script in the transliteration field.
+            if g_translit and not _contains_non_ascii_letters(g_translit):
                 transliterated = g_translit
+            elif translated and not _contains_non_ascii_letters(translated) and translated != turn.original:
+                # Use English translation as transliteration proxy — far better than
+                # showing the original script when Gemini is unavailable
+                transliterated = translated
             else:
-                transliterated = turn.transliterated
+                transliterated = turn.transliterated  # keep whatever we had
 
-            # Never let translated leak into transliterated (or vice versa) —
-            # that substitution is exactly the bug being fixed here.
             result_turns.append(turn.model_copy(update={
-                "transliterated": transliterated,
-                "translated": translated,
+                "transliterated": transliterated or translated or turn.transliterated,
+                "translated": translated or turn.translated,
             }))
 
         gemini_hit = len(gemini_results)
@@ -535,7 +387,7 @@ class GeminiArtifactService:
         if gemini_hit < total_pending:
             logger.info(
                 f"Translation: Gemini covered {gemini_hit}/{total_pending} turns. "
-                f"{total_pending - gemini_hit} left as original text (no non-Gemini fallback)."
+                f"{total_pending - gemini_hit} used GoogleTranslator fallback."
             )
         return result_turns
 
@@ -608,21 +460,16 @@ class GeminiArtifactService:
     # ------------------------------------------------------------------
 
     async def generate(self, merged: MergedTranscript) -> FinalResult:
-        # Build the initial transcript structure
         result = self.build_default_result(merged)
-        phase_started = time.monotonic()
-        logger.info(f"Gemini artifact generation starting for {len(result.turns)} turn(s)...")
 
         # 1. Translate + transliterate ALL turns
         try:
-            # Translate and transliterate all transcript turns
             result.turns = await self._translate_all_turns(result.turns)
         except Exception as e:
             logger.error(f"Translation pass failed: {e}", exc_info=True)
 
         # 2. Generate summary
         try:
-            # Generate interview summary and key points
             summary, key_points = await self._generate_summary(merged, result.turns)
             result.summary = summary
             result.keyPoints = key_points
@@ -633,14 +480,8 @@ class GeminiArtifactService:
         result.languages = merged.languages
         result.language_metadata = merged.language_metadata
         result.chunk_results = merged.chunk_results
-        result.gemini_processing_seconds = round(self.total_gemini_seconds, 1)
-        logger.info(
-            f"Gemini artifact generation done in {time.monotonic() - phase_started:.1f}s wall time "
-            f"({self.total_gemini_seconds:.1f}s cumulative Gemini call time)"
-        )
 
         # 3. Populate metrics from result
-        # Store processing metrics for the admin dashboard
         if self.metrics is not None:
             self.metrics.detected_language = result.detected_language or ""
             scripts: set[str] = set()

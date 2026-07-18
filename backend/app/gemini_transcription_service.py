@@ -6,46 +6,43 @@ import base64
 import json
 import logging
 import mimetypes
-import time
+import random
 from pathlib import Path
 from typing import Any, Optional
 
 import httpx
 
-from .audio import create_chunk
 from .config import Settings
-from .gemini_rate_limiter import get_gemini_rate_limiter
 from .models import ChunkTranscript, SpeakerSegment, TranscriptWord
 
 logger = logging.getLogger(__name__)
 
-# Main service responsible for transcribing audio chunks
-# using the Gemini API and returning structured transcripts.
-class GeminiTranscriptionBlockedError(Exception):
-    """Raised when Gemini returns a blocked/cutoff finishReason (MAX_TOKENS,
-    RECITATION, SAFETY, OTHER) for a transcription request. Distinct from a
-    plain exception because it's usually caused by too much audio for one
-    response to render in full (a dense 10-minute chunk full of speaker
-    turns can produce enough JSON output to hit MAX_TOKENS) — retrying with
-    the exact same audio wouldn't help, but splitting the audio in half and
-    retrying each half independently can."""
-
-    def __init__(self, finish_reason: str):
-        self.finish_reason = finish_reason
-        super().__init__(f"Gemini blocked: finishReason={finish_reason}")
+# FIX: process-wide cap on concurrent Gemini generateContent calls, keyed
+# by (base_url, model) so different configs don't share a limiter.
+# Chunks used to all fire at Gemini simultaneously (only gated by the
+# unrelated file-size worker semaphore in pipeline.py), which instantly
+# blew through Gemini's per-minute request quota and 429'd every chunk
+# at once. This semaphore is created lazily per event loop / settings
+# combo and shared across all GeminiTranscriptionService instances in
+# this process.
+_gemini_semaphores: dict[tuple[str, str], asyncio.Semaphore] = {}
 
 
-# Below this chunk duration, splitting further isn't worth it — accept the
-# failure placeholder instead of recursing indefinitely.
-MIN_SPLIT_SECONDS = 45.0
+def _get_gemini_semaphore(settings: Settings) -> asyncio.Semaphore:
+    key = (settings.gemini_base_url, settings.gemini_model)
+    sem = _gemini_semaphores.get(key)
+    if sem is None:
+        sem = asyncio.Semaphore(max(1, settings.gemini_max_concurrent_requests))
+        _gemini_semaphores[key] = sem
+    return sem
 
 
 class GeminiTranscriptionService:
     def __init__(self, settings: Settings):
         self.settings = settings
         self._client: Optional[httpx.AsyncClient] = None
-        self.total_gemini_seconds: float = 0.0
-    # Create and reuse a single HTTP client for Gemini API requests.
+        self._semaphore = _get_gemini_semaphore(settings)
+
     def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
             self._client = httpx.AsyncClient(
@@ -53,34 +50,18 @@ class GeminiTranscriptionService:
                 limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
             )
         return self._client
-    # Transcribe a single audio chunk.
-    # Handles retries, blocked responses, and recursive chunk splitting
-    async def transcribe_chunk(
-        self,
-        chunk_id: int,
-        file_path: Path,
-        start_time: float,
-        end_time: float,
-        *,
-        _split_path: str = "",
-    ) -> ChunkTranscript:
+
+    async def transcribe_chunk(self, chunk_id: int, file_path: Path, start_time: float, end_time: float) -> ChunkTranscript:
         last_error: Exception | None = None
-        chunk_started = time.monotonic()
-        label = f"chunk {chunk_id}" if not _split_path else f"chunk {chunk_id} (part {_split_path})"
 
         for attempt in range(self.settings.transcription_retry_count + 1):
-            call_started = time.monotonic()
             try:
                 # Read audio file and convert to base64
-                # Read the audio chunk and encode it as Base64
-                # before sending it to the Gemini API.
                 audio_bytes = await asyncio.to_thread(file_path.read_bytes)
                 audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
-
+                
                 # STRICT FIX: Normalize MIME types explicitly to standard Gemini accepted strings
                 ext = file_path.suffix.lower()
-                # Determine the correct MIME type
-                # based on the uploaded audio format.
                 if ext in [".mp3", ".mpeg"]:
                     mime_type = "audio/mp3"
                 elif ext == ".wav":
@@ -92,131 +73,61 @@ class GeminiTranscriptionService:
                 else:
                     mime_type = mimetypes.guess_type(file_path.name)[0] or "audio/mp3"
 
-                logger.info(f"Transcribing {label} (attempt {attempt + 1}), calling Gemini...")
-                # Send the audio chunk to Gemini
-                # for speech-to-text transcription.
-                payload = await self._transcribe_via_gemini(audio_b64, mime_type)
-                self.total_gemini_seconds += time.monotonic() - call_started
-                logger.info(
-                    f"{label} transcribed in {time.monotonic() - chunk_started:.1f}s total "
-                    f"({attempt + 1} attempt(s))"
-                )
+                # FIX: gate the actual network call behind a process-wide
+                # semaphore so only N chunks ever hit Gemini at once,
+                # instead of every chunk firing simultaneously and
+                # tripping the per-minute request quota (429).
+                async with self._semaphore:
+                    payload = await self._transcribe_via_gemini(audio_b64, mime_type)
                 return self._parse_gemini_payload(chunk_id, start_time, end_time, payload)
-
-            except GeminiTranscriptionBlockedError as exc:
-                self.total_gemini_seconds += time.monotonic() - call_started
-                duration = end_time - start_time
-                if duration > MIN_SPLIT_SECONDS:
-                    logger.warning(
-                        f"{label} blocked ({exc.finish_reason}) — splitting into two "
-                        f"halves and retrying each independently"
-                    )
-                    return await self._transcribe_by_splitting(
-                        chunk_id, file_path, start_time, end_time, _split_path
-                    )
-                logger.warning(
-                    f"{label} blocked ({exc.finish_reason}) and too short to split "
-                    f"further ({duration:.0f}s) — leaving as failed"
-                )
-                last_error = exc
-                break
-
             except Exception as exc:
-                self.total_gemini_seconds += time.monotonic() - call_started
-                logger.warning(f"Gemini transcription attempt {attempt + 1} failed for {label}: {exc}")
+                logger.warning(f"Gemini transcription attempt {attempt + 1} failed for chunk {chunk_id}: {exc}")
                 last_error = exc
                 if attempt >= self.settings.transcription_retry_count:
                     break
-                await asyncio.sleep(2 ** attempt)
 
-        logger.error(
-            f"{label} gave up after {time.monotonic() - chunk_started:.1f}s: {last_error}"
-        )
+                # FIX: 429 (rate limit) needs a much longer wait than a
+                # normal transient error - the old `2 ** attempt` backoff
+                # (1s, 2s, 4s...) is far shorter than Gemini's ~60s
+                # per-minute quota window, so retries just got 429'd
+                # again in lockstep with every other chunk. If Gemini
+                # sends a Retry-After header, honor it exactly; otherwise
+                # use a long backoff with jitter so concurrent chunks
+                # don't all retry at the same instant.
+                status_code = getattr(getattr(exc, "response", None), "status_code", None)
+                if status_code == 429:
+                    retry_after_header = exc.response.headers.get("Retry-After") if hasattr(exc, "response") else None
+                    if retry_after_header:
+                        try:
+                            wait_seconds = float(retry_after_header)
+                        except ValueError:
+                            wait_seconds = 20.0 * (attempt + 1)
+                    else:
+                        wait_seconds = 20.0 * (attempt + 1)
+                    wait_seconds += random.uniform(0, 5)
+                    logger.info(f"Chunk {chunk_id} rate-limited by Gemini (429) - waiting {wait_seconds:.1f}s before retry.")
+                else:
+                    wait_seconds = (2 ** attempt) + random.uniform(0, 1)
+                await asyncio.sleep(wait_seconds)
+
         # Fallback graceful failure object if all retries fail
         return ChunkTranscript(
             chunk_id=chunk_id,
             start_time=start_time,
             end_time=end_time,
-            transcript=f"[{label} could not be transcribed by Gemini after retries.]",
+            transcript=f"[Chunk {chunk_id} could not be transcribed by Gemini after retries.]",
             language="unknown",
             confidence=0.0,
             speakers=[
                 SpeakerSegment(
                     speaker="System",
-                    text=f"{label} transcription failed.",
+                    text=f"Chunk {chunk_id} transcription failed.",
                     start_time=start_time,
                     end_time=end_time,
                     confidence=0.0,
                 )
             ],
             error=str(last_error) if last_error else "Unknown transcription error",
-        )
-    # Split large audio chunks into smaller parts
-   # when Gemini cannot process them in a single request.
-    async def _transcribe_by_splitting(
-        self,
-        chunk_id: int,
-        file_path: Path,
-        start_time: float,
-        end_time: float,
-        split_path: str,
-    ) -> ChunkTranscript:
-        """Slice this chunk's own audio file in half and transcribe each half
-        independently (recursing further if a half is still blocked), then
-        stitch the two results back into one ChunkTranscript with correctly
-        offset timestamps. split_path accumulates '0'/'1' per recursion
-        level so temp filenames never collide across splits."""
-        duration = end_time - start_time
-        midpoint = duration / 2
-        output_dir = file_path.parent
-        left_id = f"{chunk_id}_{split_path}0"
-        right_id = f"{chunk_id}_{split_path}1"
-
-        left_path: Path | None = None
-        right_path: Path | None = None
-        # Generate two smaller audio chunks
-        # for recursive transcription.
-        try:
-            left_manifest = await asyncio.to_thread(
-                create_chunk, file_path, output_dir, self.settings, left_id, 0.0, midpoint
-            )
-            right_manifest = await asyncio.to_thread(
-                create_chunk, file_path, output_dir, self.settings, right_id, midpoint, duration
-            )
-            left_path, right_path = left_manifest.path, right_manifest.path
-
-            left_result, right_result = await asyncio.gather(
-                self.transcribe_chunk(
-                    chunk_id, left_path, start_time, start_time + midpoint, _split_path=split_path + "0"
-                ),
-                self.transcribe_chunk(
-                    chunk_id, right_path, start_time + midpoint, end_time, _split_path=split_path + "1"
-                ),
-            )
-        finally:
-            for p in (left_path, right_path):
-                if p is not None:
-                    try:
-                        p.unlink(missing_ok=True)
-                    except Exception:
-                        pass
-
-        combined_confidences = [
-            r.confidence for r in (left_result, right_result) if r.confidence is not None
-        ]
-        return ChunkTranscript(
-            chunk_id=chunk_id,
-            start_time=start_time,
-            end_time=end_time,
-            transcript=" ".join(t for t in (left_result.transcript, right_result.transcript) if t).strip(),
-            language=left_result.language or right_result.language,
-            detected_language=left_result.detected_language or right_result.detected_language,
-            languages=list(dict.fromkeys([*left_result.languages, *right_result.languages])),
-            confidence=(sum(combined_confidences) / len(combined_confidences)) if combined_confidences else None,
-            words=[*left_result.words, *right_result.words],
-            language_metadata={**left_result.language_metadata, **right_result.language_metadata},
-            speakers=[*left_result.speakers, *right_result.speakers],
-            error=left_result.error or right_result.error,
         )
 
     async def _transcribe_via_gemini(self, audio_b64: str, mime_type: str) -> dict[str, Any]:
@@ -225,8 +136,7 @@ class GeminiTranscriptionService:
             f"{self.settings.gemini_base_url}/models/{model}:generateContent"
             f"?key={self.settings.gemini_api_key}"
         )
-        # Prompt instructing Gemini to perform
-        # transcription and speaker diarization.
+
         prompt = (
             "You are an expert audio transcription and diarization engine. "
             "Analyze the provided audio file and return a verbatim transcript. "
@@ -268,53 +178,17 @@ class GeminiTranscriptionService:
             ],
             "generationConfig": {
                 "temperature": 0.1,
-                "responseMimeType": "application/json",  # Forces native structured JSON output
-                # Long, densely-diarized chunks (many short speaker turns, each
-                # with its own timestamps) can produce a large JSON transcript.
-                # Without an explicit ceiling the response can hit the model's
-                # implicit default and get cut off mid-JSON (finishReason
-                # MAX_TOKENS), losing the whole chunk. gemini-2.5-flash supports
-                # up to 65536 output tokens.
-                "maxOutputTokens": 65536,
-                # gemini-2.5-flash spends output-token budget on internal
-                # "thinking" by default, ahead of the actual transcript. That
-                # reasoning isn't useful for verbatim transcription and can
-                # itself eat enough of maxOutputTokens to trigger MAX_TOKENS
-                # even with a generous ceiling. Disable it so the full budget
-                # goes to the transcript, and requests come back faster.
-                "thinkingConfig": {"thinkingBudget": 0},
+                "responseMimeType": "application/json"  # Forces native structured JSON output
             }
         }
 
         client = self._get_client()
-        limiter = get_gemini_rate_limiter(
-            self.settings.gemini_max_concurrent_calls,
-            self.settings.gemini_min_call_interval_seconds,
-        )
-        async with limiter:
-            # Call the Gemini API
-            # to transcribe the uploaded audio.
-            response = await client.post(url, headers=headers, json=request_body)
+        response = await client.post(url, headers=headers, json=request_body)
         response.raise_for_status()
-
+        
         res_json = response.json()
-
-        candidates = res_json.get("candidates") or []
-        if not candidates:
-            block_reason = res_json.get("promptFeedback", {}).get("blockReason", "UNKNOWN")
-            raise GeminiTranscriptionBlockedError(block_reason)
-
-        candidate = candidates[0]
-        finish_reason = candidate.get("finishReason", "STOP")
-        if finish_reason in {"RECITATION", "SAFETY", "MAX_TOKENS", "OTHER"}:
-            raise GeminiTranscriptionBlockedError(finish_reason)
-
-        parts = candidate.get("content", {}).get("parts") or []
-        if not parts or not parts[0].get("text"):
-            raise RuntimeError(f"Gemini returned empty content: finishReason={finish_reason}")
-
-        raw_text = parts[0]["text"]
-
+        raw_text = res_json["candidates"][0]["content"]["parts"][0]["text"]
+        
         # Clean off any markdown wrapping blocks if Gemini adds them
         clean_text = raw_text.strip()
         if clean_text.startswith("```"):
@@ -324,8 +198,7 @@ class GeminiTranscriptionService:
             return json.loads(clean_text)
         except Exception:
             return {"transcript": clean_text, "language": "en", "speakers": []}
-    # Convert the Gemini response into
-    # the application's transcript format.
+
     def _parse_gemini_payload(self, chunk_id: int, chunk_start: float, chunk_end: float, data: dict[str, Any]) -> ChunkTranscript:
         transcript = data.get("transcript", "").strip()
         language = data.get("language", "unknown")
@@ -333,8 +206,7 @@ class GeminiTranscriptionService:
 
         speakers: list[SpeakerSegment] = []
         words: list[TranscriptWord] = []
-        # Process each speaker segment and
-        # convert relative timestamps to absolute timestamps.
+
         for item in raw_speakers:
             rel_start = float(item.get("start_time", 0.0))
             rel_end = float(item.get("end_time", rel_start))
@@ -372,8 +244,7 @@ class GeminiTranscriptionService:
                     language_metadata={}
                 )
             )
-        # Return the final structured transcript
-        # for this audio chunk.
+
         return ChunkTranscript(
             chunk_id=chunk_id,
             start_time=chunk_start,

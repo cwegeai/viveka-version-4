@@ -59,11 +59,9 @@
 #         "json",
 #         str(audio_path),
 #     ]
-#     result = subprocess.run(
-#     command, capture_output=True, text=True, check=True, encoding="utf-8",
-#     errors="replace"
-#     )
+#     result = subprocess.run(command, capture_output=True, text=True, check=True)
 #     payload = json.loads(result.stdout or "{}")
+#     return float(payload.get("format", {}).get("duration", 0.0) or 0.0)
 
 
 # def normalize_audio_to_wav(input_path: Path, output_path: Path, settings: Settings) -> None:
@@ -81,10 +79,7 @@
 #         "pcm_s16le",
 #         str(output_path),
 #     ]
-#     subprocess.run(
-#     command, capture_output=True, text=True, check=True, encoding="utf-8", 
-#     errors="replace"
-#     )
+#     subprocess.run(command, capture_output=True, text=True, check=True)
 
 
 # def build_chunk_plan(duration: float, settings: Settings) -> list[tuple[int, float, float]]:

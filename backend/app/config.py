@@ -49,12 +49,27 @@ class Settings:
     upload_retry_count: int
     transcription_retry_count: int
     chunk_request_timeout_seconds: int
-    
+
     gemini_api_key: str
     gemini_model: str
     gemini_base_url: str
-    gemini_max_concurrent_calls: int
-    gemini_min_call_interval_seconds: float
+    gemini_max_concurrent_requests: int
+
+    # FIX: these five fields were missing entirely from this version of
+    # config.py, but hybrid_transcription_service.py ->
+    # OpenAITranscriptionService reads every one of them. Without these,
+    # PipelineRunner crashes with AttributeError the moment the OpenAI
+    # fallback path is touched (i.e. on your very first upload, since
+    # HybridTranscriptionService constructs OpenAITranscriptionService
+    # in __init__). OpenAI is only ever used as a per-chunk fallback
+    # when Gemini fails, so these stay unused (and free) in normal
+    # operation.
+    openai_api_key: str
+    openai_transcribe_model: str
+    openai_transcribe_language: str
+    openai_chat_model: str
+    openai_base_url: str
+
     smtp_host: str
     smtp_port: int
     smtp_sender_email: str
@@ -116,7 +131,7 @@ def get_settings() -> Settings:
         gemini_auto_max_seconds=int(os.getenv("VIVEKA_GEMINI_AUTO_MAX_SECONDS", str(15 * 60))),
         normalized_sample_rate=16000,
         normalized_channels=1,
-        chunk_minutes=int(os.getenv("VIVEKA_CHUNK_MINUTES", "10")),
+        chunk_minutes=int(os.getenv("VIVEKA_CHUNK_MINUTES", "5")),
         overlap_seconds=int(os.getenv("VIVEKA_OVERLAP_SECONDS", "5")),
         small_file_limit_bytes=100 * 1024 * 1024,
         medium_file_limit_bytes=500 * 1024 * 1024,
@@ -126,16 +141,27 @@ def get_settings() -> Settings:
         upload_retry_count=4,
         transcription_retry_count=3,
         chunk_request_timeout_seconds=int(os.getenv("STT_REQUEST_TIMEOUT_SECONDS", "600")),
-       
+
         gemini_api_key=os.getenv("GEMINI_API_KEY", ""),
         gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
         gemini_base_url=os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta").rstrip("/"),
-        # Conservative defaults matched to typical Gemini free-tier RPM limits.
-        # Shared across transcription + translation + summary calls (same API
-        # key/quota) via a single process-wide limiter. Raise these if you're
-        # on a paid tier with higher quota.
-        gemini_max_concurrent_calls=int(os.getenv("GEMINI_MAX_CONCURRENT_CALLS", "2")),
-        gemini_min_call_interval_seconds=float(os.getenv("GEMINI_MIN_CALL_INTERVAL_SECONDS", "4.0")),
+        # Caps how many chunks may call Gemini's generateContent endpoint
+        # AT THE SAME TIME - separate from the worker count used for
+        # local chunk creation/upload concurrency. Override with
+        # VIVEKA_GEMINI_MAX_CONCURRENT_REQUESTS once you know your quota.
+        gemini_max_concurrent_requests=int(os.getenv("VIVEKA_GEMINI_MAX_CONCURRENT_REQUESTS", "2")),
+
+        # OpenAI is the FALLBACK ONLY (used by HybridTranscriptionService
+        # when Gemini fails a chunk after its own retries).
+        # openai_transcribe_language defaults to "" (auto-detect) rather
+        # than a fixed language, so a fallback chunk in Odia/Tamil/
+        # Telugu/etc. doesn't get force-fit into the wrong language.
+        openai_api_key=os.getenv("OPENAI_API_KEY", ""),
+        openai_transcribe_model=os.getenv("OPENAI_TRANSCRIBE_MODEL", "gpt-4o-transcribe-diarize"),
+        openai_transcribe_language=os.getenv("OPENAI_TRANSCRIBE_LANGUAGE", ""),
+        openai_chat_model=os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
+        openai_base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/"),
+
         smtp_host=os.getenv("SMTP_HOST", "smtp.gmail.com"),
         smtp_port=int(os.getenv("SMTP_PORT", "587")),
         smtp_sender_email=os.getenv("SMTP_SENDER_EMAIL", ""),

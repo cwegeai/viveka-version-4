@@ -40,8 +40,7 @@ progress_store = get_progress_store(settings)
 auth_repository = AuthRepository(settings)
 activity_repository = ActivityRepository(settings)
 
-# Stores metadata for a chunked file upload session,
-# including uploaded chunks and temporary file locations.
+
 @dataclass
 class UploadSession:
     upload_id: str
@@ -54,8 +53,7 @@ class UploadSession:
     expected_total_chunks: int | None = None
     chunk_sizes: dict[int, int] = field(default_factory=dict)
 
-# Manages active upload sessions and tracks
-# the progress of chunked file uploads.
+
 class UploadSessionStore:
     def __init__(self):
         self._lock = Lock()
@@ -114,8 +112,7 @@ class UploadSessionStore:
 
 upload_sessions = UploadSessionStore()
 
-# Merge all uploaded chunks into a single audio file
-# before sending it to the transcription pipeline.
+
 def _assemble_chunked_upload(session: UploadSession) -> None:
     expected_total_chunks = session.expected_total_chunks or 0
     if expected_total_chunks <= 0:
@@ -152,8 +149,7 @@ class UploadInitRequest(BaseModel):
     filename: str
     file_size_bytes: int = Field(gt=0)
 
-# Extract the JWT Bearer token
-# from the Authorization header.
+
 def _extract_bearer_token(authorization: str | None) -> str | None:
     if not authorization:
         return None
@@ -169,8 +165,7 @@ def _require_auth_repository() -> AuthRepository:
         raise HTTPException(status_code=503, detail="Authentication database is not configured.")
     return auth_repository
 
-# Validate the user session and
-# return the authenticated user.
+
 async def _get_current_user(authorization: str | None) -> UserRecord:
     token = _extract_bearer_token(authorization)
     if not token:
@@ -618,8 +613,7 @@ async def transcribe_audio(
                         await asyncio.sleep(settings.progress_poll_interval_seconds)
 
             return StreamingResponse(queued_event_stream(), media_type="text/event-stream")
-    # Stream live processing progress
-# to the frontend using Server-Sent Events (SSE).
+
     async def event_stream():
         try:
             yield progress_event(
@@ -639,11 +633,7 @@ async def transcribe_audio(
 # ═══════════════════════════════════════════════════════════════════════════
 # ADMIN API — User Identity, Metrics, Activity
 # ═══════════════════════════════════════════════════════════════════════════
-# ============================================================================
-# Admin APIs
-# Provides dashboard statistics, user management,
-# activity tracking, and export functionality.
-# ============================================================================
+
 def _require_admin(authorization: str | None) -> UserRecord:
     """Raise 403 if caller is not an admin."""
     import asyncio as _asyncio
@@ -672,8 +662,7 @@ async def my_activity(
         activity_repository.list_activity, user.id, limit, 0
     )
     return JSONResponse({"activity": rows, "count": len(rows)})
-# Return dashboard statistics
-# for the admin portal.
+
 @app.get("/api/admin/dashboard")
 async def admin_dashboard(authorization: str | None = Header(default=None)):
     """Section 8 — Dashboard Metrics."""
@@ -681,8 +670,7 @@ async def admin_dashboard(authorization: str | None = Header(default=None)):
     stats = await asyncio.to_thread(activity_repository.get_dashboard_stats)
     return JSONResponse(stats)
 
-# Return all registered users
-# and their activity statistics.
+
 @app.get("/api/admin/users")
 async def admin_list_users(
     limit: int = 100,

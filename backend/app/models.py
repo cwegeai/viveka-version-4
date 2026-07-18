@@ -150,4 +150,3 @@ class FinalResult(BaseModel):
     languages: list[str] = Field(default_factory=list)
     language_metadata: dict[str, Any] = Field(default_factory=dict)
     chunk_results: list[ChunkTranscript] = Field(default_factory=list)
-    gemini_processing_seconds: float = 0.0
