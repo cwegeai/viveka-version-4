@@ -1,0 +1,7 @@
+{
+  "name": "Viveka Version2-03-02-26",
+  "description": "A professional audio transcription and analysis tool powered by Gemini.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
