@@ -124,6 +124,7 @@ class PipelineRunner:
             self.metrics.num_chunks = total_chunks
             self.metrics.chunked_processing = total_chunks > 1
             self.gemini.metrics = self.metrics
+            self.transcriber.metrics = self.metrics   # NEW
 
         worker_limit = self._worker_count_for_size(file_size_bytes)
         semaphore = asyncio.Semaphore(worker_limit)
@@ -266,6 +267,24 @@ class PipelineRunner:
         yield progress_event(PipelineStage.merging, "Merging chunk transcripts...", progress=75)
         merged = merge_chunk_results(final_chunks)
 
+        from pathlib import Path
+        import json
+
+        debug_dir = Path("logs/debug")
+        debug_dir.mkdir(parents=True, exist_ok=True)
+
+        with open(
+            debug_dir / "03_merged_transcript.json",
+            "w",
+            encoding="utf-8",
+        ) as f:
+            json.dump(
+                merged.model_dump(),
+                f,
+                indent=2,
+                ensure_ascii=False,
+            )
+
         yield progress_event(PipelineStage.merging, "Generating transcript, translation & summary...", progress=80)
 
         try:
@@ -296,3 +315,4 @@ class PipelineRunner:
                 "result": final_result.model_dump(),
             },
         )
+        # print(f"[cost-check] audio_in={self.metrics.gemini_audio_input_tokens} text_in={self.metrics.gemini_input_tokens} out={self.metrics.gemini_output_tokens} cost=${self.metrics.gemini_cost_usd:.4f}")
