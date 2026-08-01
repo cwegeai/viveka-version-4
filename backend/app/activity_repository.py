@@ -31,10 +31,15 @@ from .config import Settings
 
 # ---------------------------------------------------------------------------
 # Gemini 2.5 Flash pricing (USD per token, as of 2025)
-# ---------------------------------------------------------------------------
-_INPUT_COST_PER_TOKEN  = 0.75  / 1_000_000   # $0.15 / 1M input tokens
-_OUTPUT_COST_PER_TOKEN = 4.00  / 1_000_000   # $0.60 / 1M output tokens
-_CHARS_PER_TOKEN       = 4                    # rough approximation
+# # ---------------------------------------------------------------------------
+# _INPUT_COST_PER_TOKEN  = 0.75  / 1_000_000   # $0.15 / 1M input tokens
+# _OUTPUT_COST_PER_TOKEN = 4.00  / 1_000_000   # $0.60 / 1M output tokens
+# _CHARS_PER_TOKEN       = 4                    # rough approximation
+
+_TEXT_INPUT_COST_PER_TOKEN  = 0.30 / 1_000_000   #$0.30 (text / image / video)
+_AUDIO_INPUT_COST_PER_TOKEN = 1.00 / 1_000_000   #$1.00 (audio)
+_OUTPUT_COST_PER_TOKEN      = 2.50 / 1_000_000   #$2.50
+_CHARS_PER_TOKEN       = 4  
 
 
 def _estimate_tokens(text: str) -> int:
@@ -115,13 +120,15 @@ class TranscriptionMetrics:
 
     # --- gemini token tracking ---
     gemini_input_tokens:  int = 0
+    gemini_audio_input_tokens: int = 0   # NEW — in-memory only, not persisted, feeds cost calc below
     gemini_output_tokens: int = 0
 
     @property
     def gemini_cost_usd(self) -> float:
         return (
-            self.gemini_input_tokens  * _INPUT_COST_PER_TOKEN +
-            self.gemini_output_tokens * _OUTPUT_COST_PER_TOKEN
+            self.gemini_input_tokens       * _TEXT_INPUT_COST_PER_TOKEN +
+            self.gemini_audio_input_tokens * _AUDIO_INPUT_COST_PER_TOKEN +
+            self.gemini_output_tokens      * _OUTPUT_COST_PER_TOKEN
         )
 
     @property
