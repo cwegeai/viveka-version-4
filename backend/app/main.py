@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
+import os
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -40,7 +41,8 @@ progress_store = get_progress_store(settings)
 auth_repository = AuthRepository(settings)
 activity_repository = ActivityRepository(settings)
 
-
+# Stores metadata for a chunked file upload session,
+# including uploaded chunks and temporary file locations.
 @dataclass
 class UploadSession:
     upload_id: str
@@ -53,7 +55,8 @@ class UploadSession:
     expected_total_chunks: int | None = None
     chunk_sizes: dict[int, int] = field(default_factory=dict)
 
-
+# Manages active upload sessions and tracks
+# the progress of chunked file uploads.
 class UploadSessionStore:
     def __init__(self):
         self._lock = Lock()
@@ -112,7 +115,8 @@ class UploadSessionStore:
 
 upload_sessions = UploadSessionStore()
 
-
+# Merge all uploaded chunks into a single audio file
+# before sending it to the transcription pipeline.
 def _assemble_chunked_upload(session: UploadSession) -> None:
     expected_total_chunks = session.expected_total_chunks or 0
     if expected_total_chunks <= 0:
@@ -149,7 +153,8 @@ class UploadInitRequest(BaseModel):
     filename: str
     file_size_bytes: int = Field(gt=0)
 
-
+# Extract the JWT Bearer token
+# from the Authorization header.
 def _extract_bearer_token(authorization: str | None) -> str | None:
     if not authorization:
         return None
@@ -165,7 +170,8 @@ def _require_auth_repository() -> AuthRepository:
         raise HTTPException(status_code=503, detail="Authentication database is not configured.")
     return auth_repository
 
-
+# Validate the user session and
+# return the authenticated user.
 async def _get_current_user(authorization: str | None) -> UserRecord:
     token = _extract_bearer_token(authorization)
     if not token:
@@ -218,7 +224,6 @@ async def startup() -> None:
 @app.post("/auth/register")
 async def register(payload: RegisterRequest):
     repository = _require_auth_repository()
-
     try:
         user = await asyncio.to_thread(
             repository.register_user,
@@ -252,6 +257,8 @@ async def login(
     password: str = Form(...),
 ):
     repository = _require_auth_repository()
+    
+
     user = await asyncio.to_thread(repository.get_user_by_email, username)
 
     if not user or not verify_password(password, user.password_hash):
@@ -545,8 +552,18 @@ async def transcribe_audio(
         shutil.rmtree(workspace, ignore_errors=True)
         return JSONResponse({"error": "Uploaded file was empty."}, status_code=400)
 
+    
+
+    m = TranscriptionMetrics()
+    m.original_filename = file.filename or ""
+    m.file_size_mb = round(file_size_bytes / 1_048_576, 3)
+    m.audio_format = os.path.splitext(file.filename or "")[1].lstrip(".").lower()
+    m.input_method = "file_upload"
+    m.processing_start = _utcnow()
+
     queue_fallback_message: str | None = None
     runner = PipelineRunner(settings)
+    runner.metrics = m
 
     if _supports_background_jobs(file_size_bytes):
         job_id = uuid.uuid4().hex
@@ -613,7 +630,8 @@ async def transcribe_audio(
                         await asyncio.sleep(settings.progress_poll_interval_seconds)
 
             return StreamingResponse(queued_event_stream(), media_type="text/event-stream")
-
+    # Stream live processing progress
+# to the frontend using Server-Sent Events (SSE).
     async def event_stream():
         try:
             yield progress_event(
@@ -623,9 +641,15 @@ async def transcribe_audio(
             )
             async for event in runner.run_saved_source(source_path, file_size_bytes, workspace):
                 yield event
+            m.processing_status = "success"
         except Exception as exc:
+            m.processing_status = "failed"
+            m.error_message = str(exc)[:500]
             yield progress_event(PipelineStage.error, f"Pipeline failed: {exc}")
         finally:
+            m.processing_end = _utcnow()
+            if settings.database_url:
+                await asyncio.to_thread(activity_repository.record_transcription, m)
             shutil.rmtree(workspace, ignore_errors=True)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
@@ -633,7 +657,11 @@ async def transcribe_audio(
 # ═══════════════════════════════════════════════════════════════════════════
 # ADMIN API — User Identity, Metrics, Activity
 # ═══════════════════════════════════════════════════════════════════════════
-
+# ============================================================================
+# Admin APIs
+# Provides dashboard statistics, user management,
+# activity tracking, and export functionality.
+# ============================================================================
 def _require_admin(authorization: str | None) -> UserRecord:
     """Raise 403 if caller is not an admin."""
     import asyncio as _asyncio
@@ -662,7 +690,8 @@ async def my_activity(
         activity_repository.list_activity, user.id, limit, 0
     )
     return JSONResponse({"activity": rows, "count": len(rows)})
-
+# Return dashboard statistics
+# for the admin portal.
 @app.get("/api/admin/dashboard")
 async def admin_dashboard(authorization: str | None = Header(default=None)):
     """Section 8 — Dashboard Metrics."""
@@ -670,7 +699,8 @@ async def admin_dashboard(authorization: str | None = Header(default=None)):
     stats = await asyncio.to_thread(activity_repository.get_dashboard_stats)
     return JSONResponse(stats)
 
-
+# Return all registered users
+# and their activity statistics.
 @app.get("/api/admin/users")
 async def admin_list_users(
     limit: int = 100,
