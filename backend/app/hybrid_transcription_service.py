@@ -37,6 +37,14 @@ class HybridTranscriptionService:
         self.primary = GeminiTranscriptionService(settings)
         self.fallback = OpenAITranscriptionService(settings)
 
+    @property
+    def metrics(self):
+        return self.primary.metrics
+
+    @metrics.setter
+    def metrics(self, value):
+        self.primary.metrics = value
+
     async def transcribe_chunk(self, chunk_id: int, file_path: Path, start_time: float, end_time: float) -> ChunkTranscript:
         primary_result = await self.primary.transcribe_chunk(chunk_id, file_path, start_time, end_time)
 
