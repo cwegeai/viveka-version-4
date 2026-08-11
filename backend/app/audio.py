@@ -257,8 +257,10 @@ def create_chunk(
     chunk_id: int,
     start_time: float,
     end_time: float,
+    filename_suffix: str = "",      # NEW
+
 ) -> ChunkManifest:
-    output_file = output_dir / f"chunk_{chunk_id:03d}.flac"
+    output_file = output_dir / f"chunk_{chunk_id:03d}{filename_suffix}.flac"   # CHANGED
     command = [
         "ffmpeg",
         "-y",

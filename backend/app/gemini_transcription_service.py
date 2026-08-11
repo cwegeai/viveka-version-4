@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import httpx
+import re
 
 import traceback
 from datetime import datetime
@@ -46,6 +47,19 @@ class GeminiTranscriptionBlockedError(Exception):
 # Below this chunk duration, splitting further isn't worth it — accept the
 # failure placeholder instead of recursing indefinitely.
 MIN_SPLIT_SECONDS = 45.0
+
+REPETITION_MAX_REPEATS = 10
+
+def _collapse_repeated_words(text: str, max_repeats: int) -> str:
+    """If the same word repeats more than max_repeats times in a row,
+    collapse that run down to a single occurrence of the word."""
+    if not text:
+        return text
+    pattern = re.compile(
+        r"\b(\w+)\b(?:\s+\1\b){" + str(max_repeats) + r",}",
+        re.IGNORECASE,
+    )
+    return pattern.sub(lambda m: m.group(1), text)
 
 
 class GeminiTranscriptionService:
@@ -108,9 +122,12 @@ class GeminiTranscriptionService:
 
                 logger.info(f"Transcribing {label} (attempt {attempt + 1}), calling Gemini...")
 
+                # Inside transcribe_chunk:
+                chunk_duration = max(0.0, end_time - start_time)  # <-- Compute duration here
+
                 # Send the audio chunk to Gemini
                 # for speech-to-text transcription.
-                payload, finish_reason = await self._transcribe_via_gemini(audio_b64, mime_type)
+                payload, finish_reason = await self._transcribe_via_gemini(audio_b64, mime_type,chunk_duration)
 
                 # ===================================================================================
                 # Raw Gemini Response
@@ -158,9 +175,16 @@ class GeminiTranscriptionService:
 
                 parsed = self._parse_gemini_payload(chunk_id, start_time, end_time, payload)
 
-                      # ===================================================================================
-                                                                #  CHUNK
-                                                 # ====================================================================================
+                # Collapse any run where the same word repeats more than 10 times in a
+                # row (Gemini stuck-loop artifact) down to a single occurrence, on both
+                # the top-level transcript and each speaker segment's text.
+                parsed.transcript = _collapse_repeated_words(parsed.transcript, REPETITION_MAX_REPEATS)
+                for seg in parsed.speakers:
+                    seg.text = _collapse_repeated_words(seg.text, REPETITION_MAX_REPEATS)
+
+            # ===================================================================================
+                                                                #  CHUNK - write to json
+                # ====================================================================================
 
                 with open(
                     debug_dir / f"chunk_{chunk_id}{suffix}_02_parsed_chunk.json",
@@ -174,8 +198,8 @@ class GeminiTranscriptionService:
                         ensure_ascii=False,
                     )
                   # ===================================================================================
-                                                # END CHUNK
-                                 # ====================================================================================
+                            # END CHUNK
+                # ====================================================================================
 
                 return parsed
 
@@ -247,8 +271,9 @@ class GeminiTranscriptionService:
         duration = end_time - start_time
         midpoint = duration / 2
         output_dir = file_path.parent
-        left_id = f"{chunk_id}_{split_path}0"
-        right_id = f"{chunk_id}_{split_path}1"
+        left_suffix = f"_{split_path}0"
+        right_suffix = f"_{split_path}1"
+    
 
         left_path: Path | None = None
         right_path: Path | None = None
@@ -256,11 +281,11 @@ class GeminiTranscriptionService:
         # for recursive transcription.
         try:
             left_manifest = await asyncio.to_thread(
-                create_chunk, file_path, output_dir, self.settings, left_id, 0.0, midpoint
-            )
+                create_chunk, file_path, output_dir, self.settings, chunk_id, 0.0, midpoint, filename_suffix=left_suffix
+                )
             right_manifest = await asyncio.to_thread(
-                create_chunk, file_path, output_dir, self.settings, right_id, midpoint, duration
-            )
+                create_chunk, file_path, output_dir, self.settings, chunk_id, midpoint, duration, filename_suffix=right_suffix
+                )
             left_path, right_path = left_manifest.path, right_manifest.path
 
             left_result, right_result = await asyncio.gather(
@@ -297,7 +322,7 @@ class GeminiTranscriptionService:
             error=left_result.error or right_result.error,
         )
 
-    async def _transcribe_via_gemini(self, audio_b64: str, mime_type: str) -> tuple[dict[str, Any], str]:
+    async def _transcribe_via_gemini(self, audio_b64: str, mime_type: str,chunk_duration: float) -> tuple[dict[str, Any], str]:
         model = self.settings.gemini_model
         url = (
             f"{self.settings.gemini_base_url}/models/{model}:generateContent"
@@ -305,25 +330,59 @@ class GeminiTranscriptionService:
         )
         # Prompt instructing Gemini to perform
         # transcription and speaker diarization.
-        prompt = (
-            "You are an expert audio transcription and diarization engine. "
-            "Analyze the provided audio file and return a verbatim transcript. "
-            "Diarize distinct speakers carefully (e.g., 'Speaker 1', 'Speaker 2'). "
-            "The timestamps for each segment must be relative to the start of this specific audio file (0.0 seconds).\n\n"
-            "You MUST respond ONLY with a valid JSON object matching this schema structure:\n"
-            "{\n"
-            "  \"transcript\": \"Full text combining all turns...\",\n"
-            "  \"language\": \"en\",\n"
-            "  \"speakers\": [\n"
-            "    {\n"
-            "      \"speaker\": \"Speaker 1\",\n"
-            "      \"text\": \"The text spoken in this segment.\",\n"
-            "      \"start_time\": 0.0,\n"
-            "      \"end_time\": 4.5\n"
-            "    }\n"
-            "  ]\n"
-            "}"
-        )
+        prompt = """  
+                You are an expert multilingual transcription and speaker diarization engine.
+
+CRITICAL TRANSCRIPTION RULES (HIGHEST PRIORITY):
+- Preserve every spoken language in its original native script (e.g., Devanagari for Hindi, Arabic script, etc.).
+- Never translate, transliterate, or romanize non-English speech.
+- If an entire utterance is spoken in a non-English language, transcribe the entire utterance in that language's native script.
+- If a speaker switches languages within the same utterance (code-switching), preserve each portion in its original language and script.
+
+TASK
+- Produce a verbatim transcript.
+- Detect speaker changes accurately.
+- Split the transcript into chronological speech segments.
+- Start a new segment whenever:
+  - the speaker changes,
+  - there is a noticeable pause,
+  - a new sentence or independent utterance begins.
+- Each segment must contain speech from only one speaker.
+- Infer conversational roles whenever the dialogue clearly represents an interview.
+
+Role assignment:
+- If one speaker primarily asks questions and guides the discussion, label them "Moderator".
+- If another speaker primarily answers those questions, label them "Interviewee".
+- Once a speaker label is assigned, keep it consistent throughout the transcript.
+
+Each segment must contain:
+- speaker
+- text
+- start_time
+- end_time
+
+Timestamps must be relative to the beginning of the audio in seconds.
+
+Return ONLY valid JSON.
+
+{
+"language": "<ISO 639-1>",
+"speakers": [
+{
+"speaker": "Moderator",
+"text": "...",
+"start_time": 0.00,
+"end_time": 4.20
+},
+{
+"speaker": "Interviewee",
+"text": "...",
+"start_time": 4.20,
+"end_time": 10.35
+}
+]
+}
+            """
 
         headers = {"Content-Type": "application/json"}
         
@@ -353,7 +412,7 @@ class GeminiTranscriptionService:
                 # implicit default and get cut off mid-JSON (finishReason
                 # MAX_TOKENS), losing the whole chunk. gemini-2.5-flash supports
                 # up to 65536 output tokens.
-                "maxOutputTokens": 65536,
+                "maxOutputTokens": 30000,
                 # gemini-2.5-flash spends output-token budget on internal
                 # "thinking" by default, ahead of the actual transcript. That
                 # reasoning isn't useful for verbatim transcription and can
@@ -379,19 +438,25 @@ class GeminiTranscriptionService:
 
         res_json = response.json()
 
+         
+
           # NEW — record real usage even on a blocked/MAX_TOKENS response,
         # since the audio input was still sent and billed regardless of
         # whether the output got cut off.
         if self.metrics is not None:
             usage = res_json.get("usageMetadata", {})
             prompt_details = usage.get("promptTokensDetails", [])
+        
 
-            audio_tokens = sum(d.get("tokenCount", 0) for d in prompt_details if d.get("modality") == "AUDIO")
+            # audio_tokens = sum(d.get("tokenCount", 0) for d in prompt_details if d.get("modality") == "AUDIO")
+            # Calculate exact audio tokens (32 tokens per second of chunk duration)
+            exact_audio_tokens = int(chunk_duration * 32)
+            print( "AUDIO TOKEN",exact_audio_tokens)
             text_tokens  = sum(d.get("tokenCount", 0) for d in prompt_details if d.get("modality") == "TEXT")
 
             if prompt_details:
                 # Accurate: priced by actual modality
-                self.metrics.gemini_audio_input_tokens += audio_tokens
+                self.metrics.gemini_audio_input_tokens += exact_audio_tokens
                 self.metrics.gemini_input_tokens += text_tokens
             else:
                 # Fallback if this API version/response omits the breakdown —
