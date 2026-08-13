@@ -412,7 +412,7 @@ Return ONLY valid JSON.
                 # implicit default and get cut off mid-JSON (finishReason
                 # MAX_TOKENS), losing the whole chunk. gemini-2.5-flash supports
                 # up to 65536 output tokens.
-                "maxOutputTokens": 30000,
+                "maxOutputTokens": 65536,
                 # gemini-2.5-flash spends output-token budget on internal
                 # "thinking" by default, ahead of the actual transcript. That
                 # reasoning isn't useful for verbatim transcription and can
