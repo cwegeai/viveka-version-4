@@ -334,6 +334,8 @@ class GeminiTranscriptionService:
                 You are an expert multilingual transcription and speaker diarization engine.
 
 CRITICAL TRANSCRIPTION RULES (HIGHEST PRIORITY):
+-Provide ONLY the transcription and speaker diarization content in valid JSON format.
+-Do NOT include markdown code blocks, conversational text, intro/outro descriptions, or system metadata labels outside the required JSON schema.
 - Preserve every spoken language in its original native script (e.g., Devanagari for Hindi, Arabic script, etc.).
 - Never translate, transliterate, or romanize non-English speech.
 - If an entire utterance is spoken in a non-English language, transcribe the entire utterance in that language's native script.
@@ -370,13 +372,13 @@ Return ONLY valid JSON.
 "speakers": [
 {
 "speaker": "Moderator",
-"text": "...",
+"text": "<transcript>",
 "start_time": 0.00,
 "end_time": 4.20
 },
 {
 "speaker": "Interviewee",
-"text": "...",
+"text": "<transcript>",
 "start_time": 4.20,
 "end_time": 10.35
 }
@@ -404,7 +406,8 @@ Return ONLY valid JSON.
                 }
             ],
             "generationConfig": {
-                "temperature": 0,
+                "temperature": 0.15,
+    "topP": 0.90,
                 "responseMimeType": "application/json",  # Forces native structured JSON output
                 # Long, densely-diarized chunks (many short speaker turns, each
                 # with its own timestamps) can produce a large JSON transcript.
@@ -412,7 +415,7 @@ Return ONLY valid JSON.
                 # implicit default and get cut off mid-JSON (finishReason
                 # MAX_TOKENS), losing the whole chunk. gemini-2.5-flash supports
                 # up to 65536 output tokens.
-                "maxOutputTokens": 65536,
+                "maxOutputTokens": 10000,
                 # gemini-2.5-flash spends output-token budget on internal
                 # "thinking" by default, ahead of the actual transcript. That
                 # reasoning isn't useful for verbatim transcription and can
@@ -506,6 +509,13 @@ Return ONLY valid JSON.
     # Convert the Gemini response into
     # the application's transcript format.
     def _parse_gemini_payload(self, chunk_id: int, chunk_start: float, chunk_end: float, data: dict[str, Any]) -> ChunkTranscript:
+        # Safeguard: If data itself was passed as a raw string inside a key
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except Exception:
+                data = {}
+
         transcript = data.get("transcript", "").strip()
         language = data.get("language", "unknown")
         raw_speakers = data.get("speakers", [])
@@ -515,6 +525,19 @@ Return ONLY valid JSON.
         # Process each speaker segment and
         # convert relative timestamps to absolute timestamps.
         for item in raw_speakers:
+            speaker_label = str(item.get("speaker", "Speaker 1")).strip()
+            segment_text = str(item.get("text", "")).strip()
+
+            # Safeguard: Check if segment_text is actually a stringified JSON object
+            if segment_text.startswith("{") and "speakers" in segment_text:
+                try:
+                    nested_data = json.loads(segment_text)
+                    nested_parsed = self._parse_gemini_payload(chunk_id, chunk_start, chunk_end, nested_data)
+                    speakers.extend(nested_parsed.speakers)
+                    continue
+                except Exception:
+                    pass  # Fallback to treating it as normal text if parse fails
+
             try:
                 rel_start = float(item.get("start_time", 0.0))
             except (TypeError, ValueError):
