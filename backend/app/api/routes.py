@@ -10,8 +10,8 @@ from urllib.parse import quote
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from app.core.config import BATCH_CHAR_LIMIT, CODEBOOK, MAX_CONCURRENT_GEMINI_BATCHES
-from app.services.file_service import (
+from ..core.config import BATCH_CHAR_LIMIT, CODEBOOK, MAX_CONCURRENT_GEMINI_BATCHES
+from ..services.file_service import (
     DOCX_MEDIA_TYPE,
     XLSX_MEDIA_TYPE,
     build_docx_bytes,
@@ -19,7 +19,7 @@ from app.services.file_service import (
     build_xlsx_bytes,
     read_input_file,
 )
-from app.services.processing_service import process_segments
+from ..services.processing_service import process_segments
 
 logger = logging.getLogger("api")
 

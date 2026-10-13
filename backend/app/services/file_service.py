@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from app.core.config import PRINCIPAL_COLORS
+from ..core.config import PRINCIPAL_COLORS
 
 try:
     import openpyxl

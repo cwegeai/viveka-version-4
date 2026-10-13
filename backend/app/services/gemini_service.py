@@ -6,7 +6,7 @@ import re
 import httpx
 from fastapi import HTTPException
 
-from app.core.config import (
+from ..core.config import (
     ALLOWED_CODES,
     CODEBOOK_TEXT,
     GEMINI_API_KEY,
