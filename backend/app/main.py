@@ -33,7 +33,7 @@ from .progress_store import get_progress_store
 from .redis_queue import enqueue_job
 from .activity_repository import ActivityRepository, TranscriptionMetrics
 import hashlib
-from app.api.routes import router
+from .api.routes import router
 
 
 
