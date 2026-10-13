@@ -33,6 +33,8 @@ from .progress_store import get_progress_store
 from .redis_queue import enqueue_job
 from .activity_repository import ActivityRepository, TranscriptionMetrics
 import hashlib
+from app.api.routes import router
+
 
 
 settings = get_settings()
@@ -40,6 +42,10 @@ app = FastAPI(title="Viveka Echo Backend", version="1.0.0")
 progress_store = get_progress_store(settings)
 auth_repository = AuthRepository(settings)
 activity_repository = ActivityRepository(settings)
+
+
+app.include_router(router)
+
 
 # Stores metadata for a chunked file upload session,
 # including uploaded chunks and temporary file locations.

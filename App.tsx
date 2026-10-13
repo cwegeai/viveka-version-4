@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'r
 import { TranscriptionResult } from './types';
 import { FileUpload } from './components/FileUpload';
 import { LiveRecorder } from './components/LiveRecorder';
+import { InterviewCoding } from './components/InterviewCoding';
 import { TranscriptionCard } from './components/TranscriptionCard';
 import { transcribeAudio } from './services/transcriptionService';
 import { syncToBackend } from './services/storageService';
@@ -34,7 +35,7 @@ const Dashboard: React.FC = () => {
   const [fileDurationSeconds, setFileDurationSeconds] = useState<number>(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [processingTimeTaken, setProcessingTimeTaken] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<'upload' | 'record'>('upload');
+  const [activeTab, setActiveTab] = useState<'upload' | 'record' | 'prism'>('upload');
   const [isDark, setIsDark] = useState(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('viveka-theme') === 'dark' ||
@@ -273,16 +274,16 @@ const Dashboard: React.FC = () => {
             </div>
 
             {/* METHOD SELECTION: Stacks on Mobile */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
               <div 
                 onClick={() => setActiveTab('upload')}
                 className={`cursor-pointer p-5 md:p-6 rounded-[1.5rem] md:rounded-[2rem] border-2 transition-all flex items-center gap-4 md:gap-6 ${activeTab === 'upload' ? 'border-violet-500 bg-white dark:bg-slate-800 shadow-xl md:scale-[1.02]' : 'border-transparent bg-slate-50/50 dark:bg-slate-800/50 hover:bg-white dark:hover:bg-slate-800'}`}
               >
-                <div className="w-12 h-12 md:w-16 md:h-16 bg-[#0f172a] rounded-xl md:rounded-2xl flex items-center justify-center text-white shrink-0 shadow-lg">
+                <div className="w-12 h-12 md:w-14 md:h-14 bg-[#0f172a] rounded-xl md:rounded-2xl flex items-center justify-center text-white shrink-0 shadow-lg">
                   <svg className="w-6 h-6 md:w-8 md:h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                 </div>
                 <div>
-                  <h4 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white leading-tight">File Upload</h4>
+                  <h4 className="text-lg md:text-xl font-bold text-slate-900 dark:text-white leading-tight">File Upload</h4>
                   <p className="text-slate-400 dark:text-slate-500 text-xs md:text-sm mt-1">Submit audio → auto-analyze</p>
                 </div>
               </div>
@@ -291,19 +292,34 @@ const Dashboard: React.FC = () => {
                 onClick={() => setActiveTab('record')}
                 className={`cursor-pointer p-5 md:p-6 rounded-[1.5rem] md:rounded-[2rem] border-2 transition-all flex items-center gap-4 md:gap-6 ${activeTab === 'record' ? 'border-violet-500 bg-white dark:bg-slate-800 shadow-xl md:scale-[1.02]' : 'border-transparent bg-slate-50/50 dark:bg-slate-800/50 hover:bg-white dark:hover:bg-slate-800'}`}
               >
-                <div className="w-12 h-12 md:w-16 md:h-16 bg-violet-600 rounded-xl md:rounded-2xl flex items-center justify-center text-white shrink-0 shadow-lg">
+                <div className="w-12 h-12 md:w-14 md:h-14 bg-violet-600 rounded-xl md:rounded-2xl flex items-center justify-center text-white shrink-0 shadow-lg">
                   <svg className="w-6 h-6 md:w-8 md:h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
                 </div>
                 <div>
-                  <h4 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white leading-tight">Live Recording</h4>
+                  <h4 className="text-lg md:text-xl font-bold text-slate-900 dark:text-white leading-tight">Live Recording</h4>
                   <p className="text-slate-400 dark:text-slate-500 text-xs md:text-sm mt-1">Record in the Live Studio</p>
+                </div>
+              </div>
+
+              <div 
+                onClick={() => setActiveTab('prism')}
+                className={`cursor-pointer p-5 md:p-6 rounded-[1.5rem] md:rounded-[2rem] border-2 transition-all flex items-center gap-4 md:gap-6 ${activeTab === 'prism' ? 'border-violet-500 bg-white dark:bg-slate-800 shadow-xl md:scale-[1.02]' : 'border-transparent bg-slate-50/50 dark:bg-slate-800/50 hover:bg-white dark:hover:bg-slate-800'}`}
+              >
+                <div className="w-12 h-12 md:w-14 md:h-14 bg-gradient-to-br from-violet-500 to-fuchsia-600 rounded-xl md:rounded-2xl flex items-center justify-center text-white shrink-0 shadow-lg">
+                  <svg className="w-6 h-6 md:w-7 md:h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
+                </div>
+                <div>
+                  <h4 className="text-lg md:text-xl font-bold text-slate-900 dark:text-white leading-tight">Interview Analysis</h4>
+                  <p className="text-slate-400 dark:text-slate-500 text-xs md:text-sm mt-1">PRISM coding of transcripts</p>
                 </div>
               </div>
             </div>
 
             {/* BELOW BOX: Responsive minimum height */}
             <div className="min-h-[400px] md:min-h-[550px] bg-white dark:bg-slate-900 rounded-[2rem] md:rounded-[3rem] border border-slate-100 dark:border-slate-800 shadow-2xl shadow-slate-200/50 dark:shadow-none flex flex-col items-center justify-center overflow-hidden">
-                {isProcessing ? (
+                {activeTab === 'prism' ? (
+                  <InterviewCoding />
+                ) : isProcessing ? (
   <div className="w-full max-w-lg text-center p-6 md:p-12 animate-fade-in bg-white/50 dark:bg-slate-900/50 rounded-3xl">
 
     {originalFile && (

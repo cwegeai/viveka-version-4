@@ -133,31 +133,31 @@ class GeminiTranscriptionService:
                 # Raw Gemini Response
                 # ====================================================================================
 
-                from pathlib import Path
-                import json
+                # from pathlib import Path
+                # import json
 
-                debug_dir = Path("logs/debug")
-                debug_dir.mkdir(parents=True, exist_ok=True)
+                # debug_dir = Path("logs/debug")
+                # debug_dir.mkdir(parents=True, exist_ok=True)
 
-                suffix = f"_{_split_path}" if _split_path else ""
+                # suffix = f"_{_split_path}" if _split_path else ""
 
-                with open(
-                    debug_dir / f"chunk_{chunk_id}{suffix}_01_raw_gemini.json",
-                    "w",
-                    encoding="utf-8",
-                ) as f:
-                    json.dump(
-                        {
-                            "chunk_id": chunk_id,
-                            "start_time": start_time,
-                            "end_time": end_time,
-                            "finish_reason": finish_reason,
-                            "payload": payload,
-                        },
-                        f,
-                        indent=2,
-                        ensure_ascii=False,
-                    )
+                # with open(
+                #     debug_dir / f"chunk_{chunk_id}{suffix}_01_raw_gemini.json",
+                #     "w",
+                #     encoding="utf-8",
+                # ) as f:
+                #     json.dump(
+                #         {
+                #             "chunk_id": chunk_id,
+                #             "start_time": start_time,
+                #             "end_time": end_time,
+                #             "finish_reason": finish_reason,
+                #             "payload": payload,
+                #         },
+                #         f,
+                #         indent=2,
+                #         ensure_ascii=False,
+                #     )
 
                   # ===================================================================================
                                 # END Raw Gemini Response
@@ -186,17 +186,17 @@ class GeminiTranscriptionService:
                                                                 #  CHUNK - write to json
                 # ====================================================================================
 
-                with open(
-                    debug_dir / f"chunk_{chunk_id}{suffix}_02_parsed_chunk.json",
-                    "w",
-                    encoding="utf-8",
-                ) as f:
-                    json.dump(
-                        parsed.model_dump(),
-                        f,
-                        indent=2,
-                        ensure_ascii=False,
-                    )
+                # with open(
+                #     debug_dir / f"chunk_{chunk_id}{suffix}_02_parsed_chunk.json",
+                #     "w",
+                #     encoding="utf-8",
+                # ) as f:
+                #     json.dump(
+                #         parsed.model_dump(),
+                #         f,
+                #         indent=2,
+                #         ensure_ascii=False,
+                #     )
                   # ===================================================================================
                             # END CHUNK
                 # ====================================================================================
@@ -415,7 +415,7 @@ Return ONLY valid JSON.
                 # implicit default and get cut off mid-JSON (finishReason
                 # MAX_TOKENS), losing the whole chunk. gemini-2.5-flash supports
                 # up to 65536 output tokens.
-                "maxOutputTokens": 10000,
+                "maxOutputTokens": 65536,
                 # gemini-2.5-flash spends output-token budget on internal
                 # "thinking" by default, ahead of the actual transcript. That
                 # reasoning isn't useful for verbatim transcription and can

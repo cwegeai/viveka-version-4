@@ -480,8 +480,8 @@ class GeminiArtifactService:
                                 "transliterated": res["transliterated"],
                                 "translated": res["translated"],
                             })
-                    if batch_records:
-                        _write_translation_records_to_json(batch_records)
+                    # if batch_records:
+                    #     _write_translation_records_to_json(batch_records)
                     # ----------------------------------------
                     # If ids didn't line up (Gemini renamed/dropped them) but the
                     # item count matches the batch, fall back to positional

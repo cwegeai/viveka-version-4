@@ -1,0 +1,1342 @@
+{
+  "codes": [
+    {
+      "principal_code": "Socio-demographic data",
+      "sub_code": "Disability",
+      "explanation": "",
+      "color": "#0A8DAF"
+    },
+    {
+      "principal_code": "Socio-demographic data",
+      "sub_code": "Gender",
+      "explanation": "",
+      "color": "#0A8DAF"
+    },
+    {
+      "principal_code": "Socio-demographic data",
+      "sub_code": "Gender change",
+      "explanation": "",
+      "color": "#0A8DAF"
+    },
+    {
+      "principal_code": "Socio-demographic data",
+      "sub_code": "Woman",
+      "explanation": "",
+      "color": "#0A8DAF"
+    },
+    {
+      "principal_code": "Socio-demographic data",
+      "sub_code": "Man",
+      "explanation": "",
+      "color": "#0A8DAF"
+    },
+    {
+      "principal_code": "Socio-demographic data",
+      "sub_code": "Female",
+      "explanation": "",
+      "color": "#0A8DAF"
+    },
+    {
+      "principal_code": "Socio-demographic data",
+      "sub_code": "Siblings",
+      "explanation": "Number of brothers and sisters; mostly hard data, relation with siblings goes in Personal life.",
+      "color": "#0A8DAF"
+    },
+    {
+      "principal_code": "Socio-demographic data",
+      "sub_code": "Children",
+      "explanation": "Basic information about whether the interviewee has children or grandchildren.",
+      "color": "#0A8DAF"
+    },
+    {
+      "principal_code": "Socio-demographic data",
+      "sub_code": "Occupation - Partner",
+      "explanation": "",
+      "color": "#0A8DAF"
+    },
+    {
+      "principal_code": "Socio-demographic data",
+      "sub_code": "Occupation - Interviewee (past & present)",
+      "explanation": "",
+      "color": "#0A8DAF"
+    },
+    {
+      "principal_code": "Socio-demographic data",
+      "sub_code": "Occupation - Mother",
+      "explanation": "",
+      "color": "#0A8DAF"
+    },
+    {
+      "principal_code": "Socio-demographic data",
+      "sub_code": "Occupation - Father",
+      "explanation": "",
+      "color": "#0A8DAF"
+    },
+    {
+      "principal_code": "Socio-demographic data",
+      "sub_code": "Social class - Caste",
+      "explanation": "",
+      "color": "#0A8DAF"
+    },
+    {
+      "principal_code": "Socio-demographic data",
+      "sub_code": "Social class - Interviewee",
+      "explanation": "",
+      "color": "#0A8DAF"
+    },
+    {
+      "principal_code": "Socio-demographic data",
+      "sub_code": "Social class - Parents and family",
+      "explanation": "",
+      "color": "#0A8DAF"
+    },
+    {
+      "principal_code": "Socio-demographic data",
+      "sub_code": "Places - Residence - interviewee",
+      "explanation": "",
+      "color": "#0A8DAF"
+    },
+    {
+      "principal_code": "Socio-demographic data",
+      "sub_code": "Places - Residence - Parents",
+      "explanation": "",
+      "color": "#0A8DAF"
+    },
+    {
+      "principal_code": "Socio-demographic data",
+      "sub_code": "Places - Origin - Place",
+      "explanation": "",
+      "color": "#0A8DAF"
+    },
+    {
+      "principal_code": "Socio-demographic data",
+      "sub_code": "Places - Origin - Country",
+      "explanation": "",
+      "color": "#0A8DAF"
+    },
+    {
+      "principal_code": "Socio-demographic data",
+      "sub_code": "Age",
+      "explanation": "",
+      "color": "#0A8DAF"
+    },
+    {
+      "principal_code": "Socio-demographic data",
+      "sub_code": "From a minority (race, ethnicity, or background)",
+      "explanation": "",
+      "color": "#0A8DAF"
+    },
+    {
+      "principal_code": "Ashram",
+      "sub_code": "Ashram v/ the outside world",
+      "explanation": "Reflections about the difference between being at the ashram and being in the outside world.",
+      "color": "#0061E8"
+    },
+    {
+      "principal_code": "Ashram",
+      "sub_code": "Relation with ashramites",
+      "explanation": "Relations with ashramites.",
+      "color": "#0061E8"
+    },
+    {
+      "principal_code": "Ashram",
+      "sub_code": "Life at the ashram and ashram environment",
+      "explanation": "Anything linked to the ashram and its environment.",
+      "color": "#0061E8"
+    },
+    {
+      "principal_code": "Ashram",
+      "sub_code": "Moving to the Ashram",
+      "explanation": "",
+      "color": "#0061E8"
+    },
+    {
+      "principal_code": "Ashram",
+      "sub_code": "History of the Ashram",
+      "explanation": "",
+      "color": "#0061E8"
+    },
+    {
+      "principal_code": "Personal Life",
+      "sub_code": "Corporate careers and other high-income positions while an Amma devotee",
+      "explanation": "",
+      "color": "#0061E8"
+    },
+    {
+      "principal_code": "Personal Life",
+      "sub_code": "Disability",
+      "explanation": "",
+      "color": "#0061E8"
+    },
+    {
+      "principal_code": "Personal Life",
+      "sub_code": "Teenage years (e.g. rebellion or other)",
+      "explanation": "",
+      "color": "#0061E8"
+    },
+    {
+      "principal_code": "Personal Life",
+      "sub_code": "Family history",
+      "explanation": "Parts of the interview that talk of family history, such as migration of grandparents.",
+      "color": "#0061E8"
+    },
+    {
+      "principal_code": "Personal Life",
+      "sub_code": "Remarkable experiences in parents or grandparents lives",
+      "explanation": "Extraordinary experiences that can leave a scar in the lineage, such as refugee experience, hard migration, addiction, violence patterns, alcoholism, or psychiatric conditions.",
+      "color": "#0061E8"
+    },
+    {
+      "principal_code": "Personal Life",
+      "sub_code": "Childhood",
+      "explanation": "Descriptions of childhood family environment not directly covered by parent-child relation categories.",
+      "color": "#0061E8"
+    },
+    {
+      "principal_code": "Personal Life",
+      "sub_code": "Children - Relation with children",
+      "explanation": "",
+      "color": "#0061E8"
+    },
+    {
+      "principal_code": "Personal Life",
+      "sub_code": "Children - About having children",
+      "explanation": "",
+      "color": "#0061E8"
+    },
+    {
+      "principal_code": "Personal Life",
+      "sub_code": "Career choice",
+      "explanation": "",
+      "color": "#0061E8"
+    },
+    {
+      "principal_code": "Personal Life",
+      "sub_code": "Higher education",
+      "explanation": "",
+      "color": "#0061E8"
+    },
+    {
+      "principal_code": "Personal Life",
+      "sub_code": "Relationships and marriage - Same sex experiences",
+      "explanation": "",
+      "color": "#0061E8"
+    },
+    {
+      "principal_code": "Personal Life",
+      "sub_code": "Relationships and marriage - Teenage relations with other or same sex",
+      "explanation": "Intimate relationships, sexual or not, in teens or early twenties before serious commitment.",
+      "color": "#0061E8"
+    },
+    {
+      "principal_code": "Personal Life",
+      "sub_code": "Relationships and marriage - Arranged marriage",
+      "explanation": "",
+      "color": "#0061E8"
+    },
+    {
+      "principal_code": "Personal Life",
+      "sub_code": "Relation with sibling",
+      "explanation": "Qualitative information about relationships with brothers and sisters and factors shaping those relationships.",
+      "color": "#0061E8"
+    },
+    {
+      "principal_code": "Personal Life",
+      "sub_code": "Relation with mother",
+      "explanation": "Information about the mother that shaped or influenced the relationship.",
+      "color": "#0061E8"
+    },
+    {
+      "principal_code": "Personal Life",
+      "sub_code": "Relation with father",
+      "explanation": "Information about the father that shaped or influenced the relationship.",
+      "color": "#0061E8"
+    },
+    {
+      "principal_code": "Personal Life",
+      "sub_code": "Relation with parents and other members (aunts, grandparents, etc.)",
+      "explanation": "",
+      "color": "#0061E8"
+    },
+    {
+      "principal_code": "Personal Life",
+      "sub_code": "Travels while child or young adult",
+      "explanation": "",
+      "color": "#0061E8"
+    },
+    {
+      "principal_code": "Personal Life",
+      "sub_code": "Schooling",
+      "explanation": "",
+      "color": "#0061E8"
+    },
+    {
+      "principal_code": "Religion and spirituality",
+      "sub_code": "Experience and experimentation as the measure of Truth",
+      "explanation": "When experience is described as guaranteeing that something is true or true for the person.",
+      "color": "#FFC000"
+    },
+    {
+      "principal_code": "Religion and spirituality",
+      "sub_code": "Extraordinary spiritual or religious experiences of the person or others (not linked to Amma)",
+      "explanation": "Religious or spiritual experiences with other gurus or in other contexts than Amma.",
+      "color": "#FFC000"
+    },
+    {
+      "principal_code": "Religion and spirituality",
+      "sub_code": "Spiritual or religious practices and experiences of interviewee",
+      "explanation": "Specific mentions such as yoga retreat, meeting the Dalai Lama, meditation, or reading certain books.",
+      "color": "#FFC000"
+    },
+    {
+      "principal_code": "Religion and spirituality",
+      "sub_code": "Dreams, intuitions and premonitions",
+      "explanation": "Significant dreams or premonitions.",
+      "color": "#FFC000"
+    },
+    {
+      "principal_code": "Religion and spirituality",
+      "sub_code": "Supernatural - references to the supernatural, God, ghosts, etc.",
+      "explanation": "Includes metaphysical elements such as Universe, Cosmos, Life, Nature.",
+      "color": "#FFC000"
+    },
+    {
+      "principal_code": "Religion and spirituality",
+      "sub_code": "Spirituality for the interviewee (conception or definition of)",
+      "explanation": "The person's relation to spirituality, spiritual practice, spiritual path, gurus, experimenting, and spiritual literature.",
+      "color": "#FFC000"
+    },
+    {
+      "principal_code": "Religion and spirituality",
+      "sub_code": "Religion for the interviewee",
+      "explanation": "The person's experience, reflections, judgments, and practices concerning what they call religion.",
+      "color": "#FFC000"
+    },
+    {
+      "principal_code": "Religion and spirituality",
+      "sub_code": "Religion and spirituality of parents and family (values)",
+      "explanation": "Practices, customs, traditions, festivals, temples, pilgrimages, gurus, readings, prayers, and related values.",
+      "color": "#FFC000"
+    },
+    {
+      "principal_code": "Religion and spirituality",
+      "sub_code": "Spiritual or religious books that were significant",
+      "explanation": "",
+      "color": "#FFC000"
+    },
+    {
+      "principal_code": "Religion and spirituality",
+      "sub_code": "Spirituality for the interviewee",
+      "explanation": "What spirituality is for the person and their relation to spiritual practice and path.",
+      "color": "#FFC000"
+    },
+    {
+      "principal_code": "Politics",
+      "sub_code": "Politics",
+      "explanation": "",
+      "color": "#5E53CB"
+    },
+    {
+      "principal_code": "Politics",
+      "sub_code": "Politics in the family",
+      "explanation": "",
+      "color": "#5E53CB"
+    },
+    {
+      "principal_code": "Values and practices",
+      "sub_code": "Social engagement",
+      "explanation": "",
+      "color": "#FDBA71"
+    },
+    {
+      "principal_code": "Gender relations and gender roles",
+      "sub_code": "Gender relations and gender roles",
+      "explanation": "Differences between generations, changing roles for women and men, and social/societal expectations around gender.",
+      "color": "#6198FF"
+    },
+    {
+      "principal_code": "India and the West",
+      "sub_code": "Other places (e.g. Singapore) - relation to India and the West",
+      "explanation": "",
+      "color": "#BFBFBF"
+    },
+    {
+      "principal_code": "India and the West",
+      "sub_code": "Westerners on India and Indians",
+      "explanation": "What Westerners think of India and Indians.",
+      "color": "#BFBFBF"
+    },
+    {
+      "principal_code": "India and the West",
+      "sub_code": "Indians on the West and Westerners and Comparisons",
+      "explanation": "What Indians think of the West and Westerners.",
+      "color": "#BFBFBF"
+    },
+    {
+      "principal_code": "Turning Points",
+      "sub_code": "Revelation, illumination, or encounter that changed the person's life",
+      "explanation": "",
+      "color": "#FF3E2A"
+    },
+    {
+      "principal_code": "Turning Points",
+      "sub_code": "Illness (interviewee or family member or friend or other)",
+      "explanation": "",
+      "color": "#FF3E2A"
+    },
+    {
+      "principal_code": "Turning Points",
+      "sub_code": "Experience",
+      "explanation": "An extraordinary experience, negative or positive or overwhelming/ambivalent, that marked a change in life course.",
+      "color": "#FF3E2A"
+    },
+    {
+      "principal_code": "Turning Points",
+      "sub_code": "Death - loss of significant person",
+      "explanation": "",
+      "color": "#FF3E2A"
+    },
+    {
+      "principal_code": "Turning Points",
+      "sub_code": "Teenage rupture",
+      "explanation": "A striking event during teenage years affecting the person's life.",
+      "color": "#FF3E2A"
+    },
+    {
+      "principal_code": "Turning Points",
+      "sub_code": "Accident",
+      "explanation": "A significant accident affecting the person, family, or others.",
+      "color": "#FF3E2A"
+    },
+    {
+      "principal_code": "Turning Points",
+      "sub_code": "Event: revolution, natural disaster, war, etc.",
+      "explanation": "",
+      "color": "#FF3E2A"
+    },
+    {
+      "principal_code": "Turning Points",
+      "sub_code": "Migration or move that had a significant impact",
+      "explanation": "",
+      "color": "#FF3E2A"
+    },
+    {
+      "principal_code": "Turning Points",
+      "sub_code": "Divorce or separation (of parents, or of interviewee, if something that impacted)",
+      "explanation": "",
+      "color": "#FF3E2A"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Year of first meeting amma",
+      "explanation": "Just the year, not the experience.",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "How the person got to know about Amma",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Reason for the person going to Amma",
+      "explanation": "A life event or later realization bringing the person to Amma.",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Meeting Amma first time",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Who and what Amma is",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Need or urge to proselytize (tell people about Amma, try to recruit them)",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Experiences with Amma or related to Amma (darshan or other)",
+      "explanation": "Normal experiences with Amma, not extraordinary miraculous ones.",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Personal relation to Amma",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Amma Effects - Relation of partner and friends to Amma",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Amma giving direction or telling what to do",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Spirituality as service",
+      "explanation": "References to giving as a reason for living.",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Seva",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Religion of love",
+      "explanation": "References to Amma putting forward a religion or spirituality based on love and service.",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Social aspect of Amma's work and activities",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Ammas Grace",
+      "explanation": "Anything related to Amma's grace; can also be negative.",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Amma as a Mother",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Amma is a Woman",
+      "explanation": "What the fact that Amma is a woman means or changes for the person.",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Amma as Guru (including her teaching)",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Ammas brand of spirituality",
+      "explanation": "What characterizes Amma's spirituality and how it differs from other gurus or practices.",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "A God you can experience",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Blessings",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Compassion",
+      "explanation": "Evocations of Amma's compassion.",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Wealth",
+      "explanation": "Mentions of wealth emanating from Amma or attracting financial wealth.",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Dreaming of Amma",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Amma as or better than therapy",
+      "explanation": "Explicitly relating Amma and her influence to therapy.",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Hugs and physical contact matter",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Feeling grateful",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Becoming a renunciate, a bhramachari, a swami/ni",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Amma the Ego killer",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Spiritual Name",
+      "explanation": "Everything having to do with people getting their spiritual name from Amma.",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Programs and activities are free vs paying",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Difference between programs then and now",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "When Amma dies",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "AMMA",
+      "sub_code": "Amma and Hinduism",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "MIRACLES",
+      "sub_code": "Injustice, violence, war in this world (theodicy)",
+      "explanation": "References to horror, injustice, violence, war, crimes, rape, extreme inequalities, and how these are understood in relation to Amma or existential questions.",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "MIRACLES",
+      "sub_code": "Those who leave Amma",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "MIRACLES",
+      "sub_code": "Healing or bettering of medical condition due to Amma",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "MIRACLES",
+      "sub_code": "Extraordinary experiences with Amma or related to Amma",
+      "explanation": "Extraordinary experiences immediately related to Amma.",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "MIRACLES",
+      "sub_code": "Amma the engineer of situations",
+      "explanation": "When Amma is described as arranging situations to provoke a future outcome.",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "MIRACLES",
+      "sub_code": "Synchronicity and coincidences",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "MIRACLES",
+      "sub_code": "Amma acting through the person or others",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "MIRACLES",
+      "sub_code": "Amma answers questions without words",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "MIRACLES",
+      "sub_code": "Amma reads our thoughts, telepathy",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "MIRACLES",
+      "sub_code": "Omniscience",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "MIRACLES",
+      "sub_code": "Showing knowledge of people",
+      "explanation": "Claims that Amma knows personal information she should not know.",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "MIRACLES",
+      "sub_code": "Signs of her premonitions",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "MIRACLES",
+      "sub_code": "Showing knowledge of specialized fields",
+      "explanation": "Knowledge of engineering, sciences, medicine, rituals, customs, sayings, jokes, or traditions from other regions.",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "MIRACLES",
+      "sub_code": "Amma is directing, redirecting or manipulating destiny (+)",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "MIRACLES",
+      "sub_code": "Solves or sorts things out in a jiffy",
+      "explanation": "Examples of Amma putting people in contact or solving complicated personal issues quickly.",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "MIRACLES",
+      "sub_code": "Amma was acting in my life even before I met her",
+      "explanation": "",
+      "color": "#FE5FE8"
+    },
+    {
+      "principal_code": "LIFE NARRATIVE",
+      "sub_code": "SPIRITUAL LIFE PATH (NARRATIVE of growth)",
+      "explanation": "Longer extracts describing a person's path, realizations, development, progress, enlightenment, or work on oneself.",
+      "color": "#F7ABE5"
+    },
+    {
+      "principal_code": "LIFE NARRATIVE",
+      "sub_code": "Meaning Quest",
+      "explanation": "Explicit or implicit issues of meaning, searching for meaning, or existential questions.",
+      "color": "#F7ABE5"
+    },
+    {
+      "principal_code": "LIFE NARRATIVE",
+      "sub_code": "Therapy, healing, working on oneself",
+      "explanation": "Explicit references to therapy, healing work, or working on oneself.",
+      "color": "#F7ABE5"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "1 - What has Amma given you",
+      "explanation": "Code the whole answer and also corresponding subcategories.",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Awareness",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Joy, happiness",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Protection",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Certainty on where the road lies",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Everything",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Life, a second life",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Love",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Choosing the person",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Meaning",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "2 - What was received from Amma",
+      "explanation": "Code the whole answer and at least one corresponding subcategory.",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Basic necessities, including financial stability",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Go beyond your limits",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Transformation",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Discernment, clear vision, clearer conscience",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Strength",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Direction, guidance, a path",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Security, peace of mind",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "3 - What do you give back",
+      "explanation": "Code the whole answer.",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Everything - give back",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Love - give back",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Amma uses us",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Empathy for others",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Nothing, not much",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Social engagement, serving, and helping others",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Cannot give back to Amma",
+      "explanation": "Similar answers even if they continue with other things afterwards.",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Seva",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Money",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "4 - What are you grateful to Amma for",
+      "explanation": "Code the whole answer.",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Confidence, security, feeling secure and backed, protected",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Getting access to the most essential",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Never would have made it without her",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Good education",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "Giving me my life or a second life",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "Ending Questions",
+      "sub_code": "The Interview Itself",
+      "explanation": "",
+      "color": "#00E4DD"
+    },
+    {
+      "principal_code": "The Interview Itself",
+      "sub_code": "Methods",
+      "explanation": "Reflections or passages regarding interview or coding methods/project.",
+      "color": "#F2F2F2"
+    },
+    {
+      "principal_code": "The Interview Itself",
+      "sub_code": "Participants feelings, reactions or reflections regarding the interview",
+      "explanation": "",
+      "color": "#F2F2F2"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Gift: give, receive, give back",
+      "explanation": "Actual words used by interviewees; important terms can be coded and added.",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Advaita Vedanta",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Allende",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Amritapuri",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Amrita University",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Anandamayi Ma",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Archana",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Arnaud Desjardins",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Asanas",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Astrology",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Ayurveda",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Bhagavad Gita",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Bhajans",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Bhakti",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Bible",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "BJP",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Blessing",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Buddhism",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Christianity, Christian",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Congress Party",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "COVID-19",
+      "explanation": "References to the pandemic or virus names.",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Darshan",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Dharma",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "God",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Grace",
+      "explanation": "Grace and gratefulness.",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Guru or spiritual master",
+      "explanation": "The word itself or references to a spiritual master.",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Healing",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Hinduism",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Jesus, Christ",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Karma",
+      "explanation": "Karma and related words such as karmic.",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Krishna",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Mantra",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Meditation",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Muslims, Islam",
+      "explanation": "References to Muslims, Islam, or related terms and practices.",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "New Age",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Near-death experience",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Outer body experience",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Past lives",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Prayer",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Pujas and Homas",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Poojas",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Rama",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Ramakrishna Paramahamsa",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Ramana Maharshi",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Ramayana",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Reiki",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Sadhana",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Samskara",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Sankalpa",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Satsang",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Seva",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Shakti",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Shamanism and shaman",
+      "explanation": "References to shamans or shamanism.",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Shiva",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Tapas",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Trauma",
+      "explanation": "Any word linked to trauma, traumatic, traumatized, etc.",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Vegan, veganism",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Vegetarian, vegetarianism",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Vivekananda",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Yoga",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "Yogananda",
+      "explanation": "",
+      "color": "#F4B083"
+    },
+    {
+      "principal_code": "IN VIVO",
+      "sub_code": "zen",
+      "explanation": "",
+      "color": "#F4B083"
+    }
+  ]
+}
