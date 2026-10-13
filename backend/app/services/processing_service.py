@@ -3,7 +3,7 @@ import asyncio
 import logging
 from typing import Any, Callable
 
-from core.config import (
+from app.core.config import (
     BATCH_CHAR_LIMIT,
     GEMINI_INPUT_PRICE_PER_M,
     GEMINI_MODEL,
@@ -11,8 +11,8 @@ from core.config import (
     MAX_CONCURRENT_GEMINI_BATCHES,
     USD_TO_INR,
 )
-from services.file_service import MU_ID_NAMES, SPEAKER_NAMES, find_field
-from services.gemini_service import code_batch
+from app.services.file_service import MU_ID_NAMES, SPEAKER_NAMES, find_field
+from app.services.gemini_service import code_batch
 
 logger = logging.getLogger("processing")
 
